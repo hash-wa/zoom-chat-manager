@@ -46,8 +46,7 @@ export default async function HighlightsPage({
   searchParams: Promise<{ tag?: string }>;
 }) {
   const { tag } = await searchParams;
-  const highlights = listHighlights();
-  const allTags = listMessageTags();
+  const [highlights, allTags] = await Promise.all([listHighlights(), listMessageTags()]);
 
   if (tag === "untagged") {
     const filtered = highlights.filter((h) => h.tags.length === 0);
@@ -74,7 +73,7 @@ export default async function HighlightsPage({
   }
 
   if (tag === "linkedin") {
-    const messages = listLinkedInLinkMessages();
+    const messages = await listLinkedInLinkMessages();
     return (
       <div className="space-y-4">
         <div>
@@ -101,7 +100,7 @@ export default async function HighlightsPage({
   }
 
   if (tag === "links") {
-    const messages = listOtherLinkMessages();
+    const messages = await listOtherLinkMessages();
     return (
       <div className="space-y-4">
         <div>

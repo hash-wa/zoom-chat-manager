@@ -16,8 +16,9 @@ export default async function SearchPage({
   };
   const hasFilters = Boolean(filters.sender || filters.dateFrom || filters.dateTo);
 
-  const messages = query ? searchMessages(query, filters) : [];
-  const chats = query ? searchChatsByTitle(query, filters) : [];
+  const [messages, chats] = query
+    ? await Promise.all([searchMessages(query, filters), searchChatsByTitle(query, filters)])
+    : [[], []];
 
   return (
     <div className="space-y-6">

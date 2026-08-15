@@ -12,8 +12,8 @@ export default async function ChatsPage({
   const tagId = tag ? Number(tag) : undefined;
   const sort = sortParam === "asc" ? "asc" : "desc";
   const [chats, chatTags] = await Promise.all([
-    Promise.resolve(listChats(tagId && !Number.isNaN(tagId) ? tagId : undefined, sort)),
-    Promise.resolve(listChatTags()),
+    listChats(tagId && !Number.isNaN(tagId) ? tagId : undefined, sort),
+    listChatTags(),
   ]);
 
   return (

@@ -5,7 +5,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, { params }: Params) {
   const { id } = await params;
-  const result = exportChatMarkdown(Number(id));
+  const result = await exportChatMarkdown(Number(id));
   if (!result) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

@@ -1,4 +1,4 @@
-import db from "@/lib/db";
+import { client, queryAll, queryOne, run, batch } from "@/lib/db";
 import { parseZoomChat, extractSortableDate, type ParsedMessage } from "@/lib/parseZoomChat";
 import { hasLinkedInLink, hasOtherLink } from "@/lib/links";
 
@@ -40,86 +40,72 @@ export type Highlight = Message & {
   chatTitle: string;
 };
 
-function getOrCreateTag(name: string, scope: TagScope): Tag {
+async function getOrCreateTag(name: string, scope: TagScope): Promise<Tag> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Tag name cannot be empty");
-  const existing = db
-    .prepare("SELECT id, name, color FROM tags WHERE name = ? AND scope = ?")
-    .get(trimmed, scope) as Tag | undefined;
-  if (existing) return { ...existing };
-  const info = db
-    .prepare("INSERT INTO tags (name, scope) VALUES (?, ?)")
-    .run(trimmed, scope);
-  return { id: Number(info.lastInsertRowid), name: trimmed, color: "#6366f1" };
+  const existing = await queryOne<Tag>(
+    "SELECT id, name, color FROM tags WHERE name = ? AND scope = ?",
+    [trimmed, scope]
+  );
+  if (existing) return existing;
+  const info = await run("INSERT INTO tags (name, scope) VALUES (?, ?)", [trimmed, scope]);
+  return { id: info.lastInsertRowid, name: trimmed, color: "#6366f1" };
 }
 
-// node:sqlite returns rows as null-prototype objects, which React Server
-// Components refuse to pass to Client Components as props. Spreading each
-// row into a plain object literal fixes that.
-function toPlain<T extends object>(rows: T[]): T[] {
-  return rows.map((row) => ({ ...row }));
+async function tagsForChat(chatId: number): Promise<Tag[]> {
+  return queryAll<Tag>(
+    `SELECT t.id, t.name, t.color FROM tags t
+     JOIN chat_tags ct ON ct.tag_id = t.id
+     WHERE ct.chat_id = ? ORDER BY t.name`,
+    [chatId]
+  );
 }
 
-function tagsForChat(chatId: number): Tag[] {
-  const rows = db
-    .prepare(
-      `SELECT t.id, t.name, t.color FROM tags t
-       JOIN chat_tags ct ON ct.tag_id = t.id
-       WHERE ct.chat_id = ? ORDER BY t.name`
-    )
-    .all(chatId) as Tag[];
-  return toPlain(rows);
-}
-
-function tagsForMessage(messageId: number): Tag[] {
-  const rows = db
-    .prepare(
-      `SELECT t.id, t.name, t.color FROM tags t
-       JOIN message_tags mt ON mt.tag_id = t.id
-       WHERE mt.message_id = ? ORDER BY t.name`
-    )
-    .all(messageId) as Tag[];
-  return toPlain(rows);
+async function tagsForMessage(messageId: number): Promise<Tag[]> {
+  return queryAll<Tag>(
+    `SELECT t.id, t.name, t.color FROM tags t
+     JOIN message_tags mt ON mt.tag_id = t.id
+     WHERE mt.message_id = ? ORDER BY t.name`,
+    [messageId]
+  );
 }
 
 // Chat tags and message tags are separate pools (same tag name can exist
 // independently in each scope), so each gets its own listing.
-export function listChatTags(): TagWithCount[] {
-  const rows = db
-    .prepare(
-      `SELECT t.id, t.name, t.color, COUNT(ct.chat_id) as count
-       FROM tags t
-       LEFT JOIN chat_tags ct ON ct.tag_id = t.id
-       WHERE t.scope = 'chat'
-       GROUP BY t.id
-       ORDER BY t.name`
-    )
-    .all() as TagWithCount[];
-  return toPlain(rows);
+export async function listChatTags(): Promise<TagWithCount[]> {
+  return queryAll<TagWithCount>(
+    `SELECT t.id, t.name, t.color, COUNT(ct.chat_id) as count
+     FROM tags t
+     LEFT JOIN chat_tags ct ON ct.tag_id = t.id
+     WHERE t.scope = 'chat'
+     GROUP BY t.id
+     ORDER BY t.name`
+  );
 }
 
-export function listMessageTags(): TagWithCount[] {
-  const rows = db
-    .prepare(
-      `SELECT t.id, t.name, t.color, COUNT(mt.message_id) as count
-       FROM tags t
-       LEFT JOIN message_tags mt ON mt.tag_id = t.id
-       WHERE t.scope = 'message'
-       GROUP BY t.id
-       ORDER BY t.name`
-    )
-    .all() as TagWithCount[];
-  return toPlain(rows);
+export async function listMessageTags(): Promise<TagWithCount[]> {
+  return queryAll<TagWithCount>(
+    `SELECT t.id, t.name, t.color, COUNT(mt.message_id) as count
+     FROM tags t
+     LEFT JOIN message_tags mt ON mt.tag_id = t.id
+     WHERE t.scope = 'message'
+     GROUP BY t.id
+     ORDER BY t.name`
+  );
 }
 
-export function deleteTag(id: number): void {
-  db.prepare("DELETE FROM tags WHERE id = ?").run(id);
+export async function deleteTag(id: number): Promise<void> {
+  await batch([
+    { sql: "DELETE FROM chat_tags WHERE tag_id = ?", args: [id] },
+    { sql: "DELETE FROM message_tags WHERE tag_id = ?", args: [id] },
+    { sql: "DELETE FROM tags WHERE id = ?", args: [id] },
+  ]);
 }
 
-export function renameTag(id: number, name: string): void {
+export async function renameTag(id: number, name: string): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Tag name cannot be empty");
-  db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(trimmed, id);
+  await run("UPDATE tags SET name = ? WHERE id = ?", [trimmed, id]);
 }
 
 // Used both by createChat (to store the date) and by upload-time duplicate
@@ -130,108 +116,114 @@ export function previewChatDate(rawText: string): string {
   return derivedDate ?? new Date().toISOString().slice(0, 19).replace("T", " ");
 }
 
-export function findChatByChatDate(chatDate: string): { id: number; title: string } | undefined {
-  return db.prepare("SELECT id, title FROM chats WHERE chat_date = ?").get(chatDate) as
-    | { id: number; title: string }
-    | undefined;
+export async function findChatByChatDate(
+  chatDate: string
+): Promise<{ id: number; title: string } | undefined> {
+  return queryOne<{ id: number; title: string }>("SELECT id, title FROM chats WHERE chat_date = ?", [
+    chatDate,
+  ]);
 }
 
-export function createChat(
+export async function createChat(
   title: string,
   filename: string | null,
   rawText: string
-): number {
+): Promise<number> {
   const messages: ParsedMessage[] = parseZoomChat(rawText);
   const chatDate = previewChatDate(rawText);
 
-  const insertChat = db.prepare(
-    "INSERT INTO chats (title, filename, raw_text, chat_date) VALUES (?, ?, ?, ?)"
-  );
-  const insertMessage = db.prepare(
-    `INSERT INTO messages (chat_id, seq, timestamp_raw, sender, body)
-     VALUES (?, ?, ?, ?, ?)`
-  );
-  const setReplyTarget = db.prepare(
-    "UPDATE messages SET reply_to_message_id = ? WHERE id = ?"
-  );
-
-  db.exec("BEGIN");
+  // An interactive transaction is required here (not batch()) because each
+  // insert's id feeds the next statement's args - batch() can't do that.
+  const tx = await client.transaction("write");
   try {
-    const info = insertChat.run(title, filename, rawText, chatDate);
-    const chatId = Number(info.lastInsertRowid);
+    const chatInfo = await tx.execute({
+      sql: "INSERT INTO chats (title, filename, raw_text, chat_date) VALUES (?, ?, ?, ?)",
+      args: [title, filename, rawText, chatDate],
+    });
+    const chatId = Number(chatInfo.lastInsertRowid);
 
     const seqToId: number[] = [];
-    messages.forEach((m, idx) => {
-      const msgInfo = insertMessage.run(chatId, idx, m.timestampRaw, m.sender, m.body);
+    for (let idx = 0; idx < messages.length; idx++) {
+      const m = messages[idx];
+      const msgInfo = await tx.execute({
+        sql: `INSERT INTO messages (chat_id, seq, timestamp_raw, sender, body)
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [chatId, idx, m.timestampRaw, m.sender, m.body],
+      });
       seqToId[idx] = Number(msgInfo.lastInsertRowid);
-    });
-    messages.forEach((m, idx) => {
+    }
+    for (let idx = 0; idx < messages.length; idx++) {
+      const m = messages[idx];
       if (m.replyToSeq !== undefined) {
-        setReplyTarget.run(seqToId[m.replyToSeq], seqToId[idx]);
+        await tx.execute({
+          sql: "UPDATE messages SET reply_to_message_id = ? WHERE id = ?",
+          args: [seqToId[m.replyToSeq], seqToId[idx]],
+        });
       }
-    });
+    }
 
-    db.exec("COMMIT");
+    await tx.commit();
     return chatId;
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
+  } finally {
+    tx.close();
   }
 }
 
-export function listChats(tagId?: number, sort: "asc" | "desc" = "desc"): ChatSummary[] {
+export async function listChats(
+  tagId?: number,
+  sort: "asc" | "desc" = "desc"
+): Promise<ChatSummary[]> {
   const direction = sort === "asc" ? "ASC" : "DESC";
   const rows = tagId
-    ? (db
-        .prepare(
-          `SELECT c.id, c.title, c.filename, c.uploaded_at as uploadedAt, c.chat_date as chatDate,
-                  c.reviewed as reviewed,
-                  (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) as messageCount
-           FROM chats c
-           JOIN chat_tags ct ON ct.chat_id = c.id
-           WHERE ct.tag_id = ?
-           ORDER BY c.chat_date ${direction}`
-        )
-        .all(tagId) as Array<Omit<ChatSummary, "tags" | "reviewed"> & { reviewed: number }>)
-    : (db
-        .prepare(
-          `SELECT c.id, c.title, c.filename, c.uploaded_at as uploadedAt, c.chat_date as chatDate,
-                  c.reviewed as reviewed,
-                  (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) as messageCount
-           FROM chats c
-           ORDER BY c.chat_date ${direction}`
-        )
-        .all() as Array<Omit<ChatSummary, "tags" | "reviewed"> & { reviewed: number }>);
+    ? await queryAll<Omit<ChatSummary, "tags" | "reviewed"> & { reviewed: number }>(
+        `SELECT c.id, c.title, c.filename, c.uploaded_at as uploadedAt, c.chat_date as chatDate,
+                c.reviewed as reviewed,
+                (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) as messageCount
+         FROM chats c
+         JOIN chat_tags ct ON ct.chat_id = c.id
+         WHERE ct.tag_id = ?
+         ORDER BY c.chat_date ${direction}`,
+        [tagId]
+      )
+    : await queryAll<Omit<ChatSummary, "tags" | "reviewed"> & { reviewed: number }>(
+        `SELECT c.id, c.title, c.filename, c.uploaded_at as uploadedAt, c.chat_date as chatDate,
+                c.reviewed as reviewed,
+                (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) as messageCount
+         FROM chats c
+         ORDER BY c.chat_date ${direction}`
+      );
 
-  return rows.map((r) => ({ ...r, reviewed: !!r.reviewed, tags: tagsForChat(r.id) }));
+  return Promise.all(
+    rows.map(async (r) => ({ ...r, reviewed: !!r.reviewed, tags: await tagsForChat(r.id) }))
+  );
 }
 
-export function getChat(id: number): ChatDetail | undefined {
-  const chat = db
-    .prepare(
-      `SELECT id, title, filename, uploaded_at as uploadedAt, chat_date as chatDate,
-              raw_text as rawText, reviewed as reviewed, notes as notes
-       FROM chats WHERE id = ?`
-    )
-    .get(id) as
-    | (Omit<ChatDetail, "tags" | "messages" | "messageCount" | "reviewed"> & { reviewed: number })
-    | undefined;
+export async function getChat(id: number): Promise<ChatDetail | undefined> {
+  const chat = await queryOne<
+    Omit<ChatDetail, "tags" | "messages" | "messageCount" | "reviewed"> & { reviewed: number }
+  >(
+    `SELECT id, title, filename, uploaded_at as uploadedAt, chat_date as chatDate,
+            raw_text as rawText, reviewed as reviewed, notes as notes
+     FROM chats WHERE id = ?`,
+    [id]
+  );
   if (!chat) return undefined;
 
-  const messageRows = db
-    .prepare(
-      `SELECT id, chat_id as chatId, seq, timestamp_raw as timestampRaw, sender, body, starred,
-              reply_to_message_id as replyToMessageId
-       FROM messages WHERE chat_id = ? ORDER BY seq ASC`
-    )
-    .all(id) as Array<
+  const messageRows = await queryAll<
     Omit<Message, "starred" | "tags" | "replies"> & { starred: number }
-  >;
+  >(
+    `SELECT id, chat_id as chatId, seq, timestamp_raw as timestampRaw, sender, body, starred,
+            reply_to_message_id as replyToMessageId
+     FROM messages WHERE chat_id = ? ORDER BY seq ASC`,
+    [id]
+  );
 
   const byId = new Map<number, Message>();
-  for (const m of messageRows) {
-    byId.set(m.id, { ...m, starred: !!m.starred, tags: tagsForMessage(m.id), replies: [] });
-  }
+  await Promise.all(
+    messageRows.map(async (m) => {
+      byId.set(m.id, { ...m, starred: !!m.starred, tags: await tagsForMessage(m.id), replies: [] });
+    })
+  );
 
   const topLevel: Message[] = [];
   for (const m of messageRows) {
@@ -247,7 +239,7 @@ export function getChat(id: number): ChatDetail | undefined {
   return {
     ...chat,
     reviewed: !!chat.reviewed,
-    tags: tagsForChat(id),
+    tags: await tagsForChat(id),
     messageCount: messageRows.length,
     messages: topLevel,
   };
@@ -264,8 +256,10 @@ function messageToMarkdown(m: Message, depth: number): string {
   return replies ? `${own}\n\n${replies}` : own;
 }
 
-export function exportChatMarkdown(id: number): { title: string; markdown: string } | undefined {
-  const chat = getChat(id);
+export async function exportChatMarkdown(
+  id: number
+): Promise<{ title: string; markdown: string } | undefined> {
+  const chat = await getChat(id);
   if (!chat) return undefined;
 
   const header = [
@@ -285,132 +279,121 @@ export function exportChatMarkdown(id: number): { title: string; markdown: strin
   return { title: chat.title, markdown: `${header.join("\n")}\n${body}\n` };
 }
 
-export function deleteChat(id: number): void {
-  db.prepare("DELETE FROM chats WHERE id = ?").run(id);
+export async function deleteChat(id: number): Promise<void> {
+  await batch([
+    {
+      sql: "DELETE FROM message_tags WHERE message_id IN (SELECT id FROM messages WHERE chat_id = ?)",
+      args: [id],
+    },
+    { sql: "DELETE FROM messages WHERE chat_id = ?", args: [id] },
+    { sql: "DELETE FROM chat_tags WHERE chat_id = ?", args: [id] },
+    { sql: "DELETE FROM chats WHERE id = ?", args: [id] },
+  ]);
 }
 
-export function renameChat(id: number, title: string): void {
+export async function renameChat(id: number, title: string): Promise<void> {
   const trimmed = title.trim();
   if (!trimmed) throw new Error("Title cannot be empty");
-  db.prepare("UPDATE chats SET title = ? WHERE id = ?").run(trimmed, id);
+  await run("UPDATE chats SET title = ? WHERE id = ?", [trimmed, id]);
 }
 
-export function setChatReviewed(id: number, reviewed: boolean): void {
-  db.prepare("UPDATE chats SET reviewed = ? WHERE id = ?").run(reviewed ? 1 : 0, id);
+export async function setChatReviewed(id: number, reviewed: boolean): Promise<void> {
+  await run("UPDATE chats SET reviewed = ? WHERE id = ?", [reviewed ? 1 : 0, id]);
 }
 
-export function setChatNotes(id: number, notes: string): void {
-  db.prepare("UPDATE chats SET notes = ? WHERE id = ?").run(notes, id);
+export async function setChatNotes(id: number, notes: string): Promise<void> {
+  await run("UPDATE chats SET notes = ? WHERE id = ?", [notes, id]);
 }
 
-export function addChatTag(chatId: number, tagName: string): Tag {
-  const tag = getOrCreateTag(tagName, "chat");
-  db.prepare(
-    "INSERT OR IGNORE INTO chat_tags (chat_id, tag_id) VALUES (?, ?)"
-  ).run(chatId, tag.id);
+export async function addChatTag(chatId: number, tagName: string): Promise<Tag> {
+  const tag = await getOrCreateTag(tagName, "chat");
+  await run("INSERT OR IGNORE INTO chat_tags (chat_id, tag_id) VALUES (?, ?)", [chatId, tag.id]);
   return tag;
 }
 
-export function removeChatTag(chatId: number, tagId: number): void {
-  db.prepare("DELETE FROM chat_tags WHERE chat_id = ? AND tag_id = ?").run(
-    chatId,
-    tagId
-  );
+export async function removeChatTag(chatId: number, tagId: number): Promise<void> {
+  await run("DELETE FROM chat_tags WHERE chat_id = ? AND tag_id = ?", [chatId, tagId]);
 }
 
-export function bulkAddChatTag(chatIds: number[], tagName: string): Tag {
-  const tag = getOrCreateTag(tagName, "chat");
-  const insert = db.prepare("INSERT OR IGNORE INTO chat_tags (chat_id, tag_id) VALUES (?, ?)");
-  db.exec("BEGIN");
-  try {
-    for (const chatId of chatIds) insert.run(chatId, tag.id);
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+export async function bulkAddChatTag(chatIds: number[], tagName: string): Promise<Tag> {
+  const tag = await getOrCreateTag(tagName, "chat");
+  await batch(
+    chatIds.map((chatId) => ({
+      sql: "INSERT OR IGNORE INTO chat_tags (chat_id, tag_id) VALUES (?, ?)",
+      args: [chatId, tag.id],
+    }))
+  );
   return tag;
 }
 
-export function bulkRemoveChatTag(chatIds: number[], tagId: number): void {
-  const remove = db.prepare("DELETE FROM chat_tags WHERE chat_id = ? AND tag_id = ?");
-  db.exec("BEGIN");
-  try {
-    for (const chatId of chatIds) remove.run(chatId, tagId);
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
-}
-
-export function setMessageStarred(messageId: number, starred: boolean): void {
-  db.prepare("UPDATE messages SET starred = ? WHERE id = ?").run(
-    starred ? 1 : 0,
-    messageId
+export async function bulkRemoveChatTag(chatIds: number[], tagId: number): Promise<void> {
+  await batch(
+    chatIds.map((chatId) => ({
+      sql: "DELETE FROM chat_tags WHERE chat_id = ? AND tag_id = ?",
+      args: [chatId, tagId],
+    }))
   );
 }
 
-export function setMessageConnected(messageId: number, connected: boolean): void {
-  db.prepare("UPDATE messages SET connected = ? WHERE id = ?").run(
-    connected ? 1 : 0,
-    messageId
-  );
+export async function setMessageStarred(messageId: number, starred: boolean): Promise<void> {
+  await run("UPDATE messages SET starred = ? WHERE id = ?", [starred ? 1 : 0, messageId]);
 }
 
-// Any replies nested under this message become top-level (reply_to_message_id
-// set to NULL via the schema's ON DELETE SET NULL) rather than being deleted
-// along with it.
-export function deleteMessage(id: number): void {
-  db.prepare("DELETE FROM messages WHERE id = ?").run(id);
+export async function setMessageConnected(messageId: number, connected: boolean): Promise<void> {
+  await run("UPDATE messages SET connected = ? WHERE id = ?", [connected ? 1 : 0, messageId]);
 }
 
-export function addMessageTag(messageId: number, tagName: string): Tag {
-  const tag = getOrCreateTag(tagName, "message");
-  db.prepare(
-    "INSERT OR IGNORE INTO message_tags (message_id, tag_id) VALUES (?, ?)"
-  ).run(messageId, tag.id);
+// Any replies nested under this message become top-level (mirroring the
+// schema's ON DELETE SET NULL intent) rather than being deleted along with it.
+export async function deleteMessage(id: number): Promise<void> {
+  await batch([
+    { sql: "UPDATE messages SET reply_to_message_id = NULL WHERE reply_to_message_id = ?", args: [id] },
+    { sql: "DELETE FROM message_tags WHERE message_id = ?", args: [id] },
+    { sql: "DELETE FROM messages WHERE id = ?", args: [id] },
+  ]);
+}
+
+export async function addMessageTag(messageId: number, tagName: string): Promise<Tag> {
+  const tag = await getOrCreateTag(tagName, "message");
+  await run("INSERT OR IGNORE INTO message_tags (message_id, tag_id) VALUES (?, ?)", [
+    messageId,
+    tag.id,
+  ]);
   return tag;
 }
 
-export function removeMessageTag(messageId: number, tagId: number): void {
-  db.prepare(
-    "DELETE FROM message_tags WHERE message_id = ? AND tag_id = ?"
-  ).run(messageId, tagId);
+export async function removeMessageTag(messageId: number, tagId: number): Promise<void> {
+  await run("DELETE FROM message_tags WHERE message_id = ? AND tag_id = ?", [messageId, tagId]);
 }
 
-export function listHighlights(): Highlight[] {
-  const rows = db
-    .prepare(
-      `SELECT m.id, m.chat_id as chatId, m.seq, m.timestamp_raw as timestampRaw,
-              m.sender, m.body, m.starred, m.reply_to_message_id as replyToMessageId,
-              c.title as chatTitle
-       FROM messages m
-       JOIN chats c ON c.id = m.chat_id
-       WHERE m.starred = 1
-       ORDER BY c.chat_date DESC, m.seq ASC`
-    )
-    .all() as Array<
-    Omit<Highlight, "starred" | "tags" | "replies"> & { starred: number }
-  >;
+export async function listHighlights(): Promise<Highlight[]> {
+  const rows = await queryAll<Omit<Highlight, "starred" | "tags" | "replies"> & { starred: number }>(
+    `SELECT m.id, m.chat_id as chatId, m.seq, m.timestamp_raw as timestampRaw,
+            m.sender, m.body, m.starred, m.reply_to_message_id as replyToMessageId,
+            c.title as chatTitle
+     FROM messages m
+     JOIN chats c ON c.id = m.chat_id
+     WHERE m.starred = 1
+     ORDER BY c.chat_date DESC, m.seq ASC`
+  );
 
-  return rows.map((r) => ({
-    ...r,
-    starred: !!r.starred,
-    tags: tagsForMessage(r.id),
-    replies: [],
-  }));
+  return Promise.all(
+    rows.map(async (r) => ({
+      ...r,
+      starred: !!r.starred,
+      tags: await tagsForMessage(r.id),
+      replies: [],
+    }))
+  );
 }
 
-export function countUntaggedHighlights(): number {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM messages m
-       WHERE m.starred = 1
-         AND NOT EXISTS (SELECT 1 FROM message_tags mt WHERE mt.message_id = m.id)`
-    )
-    .get() as { c: number };
-  return row.c;
+export async function countUntaggedHighlights(): Promise<number> {
+  const row = await queryOne<{ c: number }>(
+    `SELECT COUNT(*) as c FROM messages m
+     WHERE m.starred = 1
+       AND NOT EXISTS (SELECT 1 FROM message_tags mt WHERE mt.message_id = m.id)`
+  );
+  return row?.c ?? 0;
 }
 
 export type LinkMessage = {
@@ -426,25 +409,25 @@ export type LinkMessage = {
 
 // Not tied to starring/tagging at all - these scan every message in every
 // chat for URLs, independent of the highlight system.
-function allMessagesWithChat(): LinkMessage[] {
-  const rows = db
-    .prepare(
-      `SELECT m.id, m.chat_id as chatId, c.title as chatTitle, m.seq,
-              m.timestamp_raw as timestampRaw, m.sender, m.body, m.connected as connected
-       FROM messages m
-       JOIN chats c ON c.id = m.chat_id
-       ORDER BY c.chat_date DESC, m.seq ASC`
-    )
-    .all() as Array<Omit<LinkMessage, "connected"> & { connected: number }>;
+async function allMessagesWithChat(): Promise<LinkMessage[]> {
+  const rows = await queryAll<Omit<LinkMessage, "connected"> & { connected: number }>(
+    `SELECT m.id, m.chat_id as chatId, c.title as chatTitle, m.seq,
+            m.timestamp_raw as timestampRaw, m.sender, m.body, m.connected as connected
+     FROM messages m
+     JOIN chats c ON c.id = m.chat_id
+     ORDER BY c.chat_date DESC, m.seq ASC`
+  );
   return rows.map((r) => ({ ...r, connected: !!r.connected }));
 }
 
-export function listLinkedInLinkMessages(): LinkMessage[] {
-  return allMessagesWithChat().filter((m) => hasLinkedInLink(m.body));
+export async function listLinkedInLinkMessages(): Promise<LinkMessage[]> {
+  const all = await allMessagesWithChat();
+  return all.filter((m) => hasLinkedInLink(m.body));
 }
 
-export function listOtherLinkMessages(): LinkMessage[] {
-  return allMessagesWithChat().filter((m) => hasOtherLink(m.body));
+export async function listOtherLinkMessages(): Promise<LinkMessage[]> {
+  const all = await allMessagesWithChat();
+  return all.filter((m) => hasOtherLink(m.body));
 }
 
 export type SearchFilters = {
@@ -453,27 +436,15 @@ export type SearchFilters = {
   dateTo?: string; // YYYY-MM-DD, inclusive
 };
 
-// Turns free text into an FTS5 MATCH expression: each word becomes a
-// quoted prefix term (so "dat" still finds "database"), ANDed together.
-// Quoting each term also neutralizes FTS5's own query syntax (AND/OR/NOT,
-// -, *, etc.) so a search for e.g. "c++" or "and/or" can't throw a syntax
-// error or be misinterpreted as an operator.
-function toFtsQuery(query: string): string {
-  const tokens = query
-    .trim()
-    .split(/\s+/)
-    .map((t) => t.replace(/[^\p{L}\p{N}']/gu, ""))
-    .filter(Boolean);
-  if (tokens.length === 0) return "";
-  return tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" AND ");
-}
+export async function searchMessages(
+  query: string,
+  filters: SearchFilters = {}
+): Promise<LinkMessage[]> {
+  const q = query.trim();
+  if (!q) return [];
 
-export function searchMessages(query: string, filters: SearchFilters = {}): LinkMessage[] {
-  const ftsQuery = toFtsQuery(query);
-  if (!ftsQuery) return [];
-
-  const conditions = ["messages_fts MATCH ?"];
-  const params: (string | number)[] = [ftsQuery];
+  const conditions = ["(LOWER(m.body) LIKE ? OR LOWER(m.sender) LIKE ?)"];
+  const params: (string | number)[] = [`%${q.toLowerCase()}%`, `%${q.toLowerCase()}%`];
 
   if (filters.sender?.trim()) {
     conditions.push("m.sender LIKE ? COLLATE NOCASE");
@@ -488,27 +459,28 @@ export function searchMessages(query: string, filters: SearchFilters = {}): Link
     params.push(`${filters.dateTo} 23:59:59`);
   }
 
-  const rows = db
-    .prepare(
-      `SELECT m.id, m.chat_id as chatId, c.title as chatTitle, m.seq,
-              m.timestamp_raw as timestampRaw, m.sender, m.body, m.connected as connected
-       FROM messages_fts
-       JOIN messages m ON m.id = messages_fts.rowid
-       JOIN chats c ON c.id = m.chat_id
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY bm25(messages_fts) ASC`
-    )
-    .all(...params) as Array<Omit<LinkMessage, "connected"> & { connected: number }>;
+  const rows = await queryAll<Omit<LinkMessage, "connected"> & { connected: number }>(
+    `SELECT m.id, m.chat_id as chatId, c.title as chatTitle, m.seq,
+            m.timestamp_raw as timestampRaw, m.sender, m.body, m.connected as connected
+     FROM messages m
+     JOIN chats c ON c.id = m.chat_id
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY c.chat_date DESC, m.seq ASC`,
+    params
+  );
 
-  return toPlain(rows).map((r) => ({ ...r, connected: !!r.connected }));
+  return rows.map((r) => ({ ...r, connected: !!r.connected }));
 }
 
-export function searchChatsByTitle(query: string, filters: SearchFilters = {}): ChatSummary[] {
-  const ftsQuery = toFtsQuery(query);
-  if (!ftsQuery) return [];
+export async function searchChatsByTitle(
+  query: string,
+  filters: SearchFilters = {}
+): Promise<ChatSummary[]> {
+  const q = query.trim();
+  if (!q) return [];
 
-  const conditions = ["chats_fts MATCH ?"];
-  const params: (string | number)[] = [ftsQuery];
+  const conditions = ["LOWER(c.title) LIKE ?"];
+  const params: (string | number)[] = [`%${q.toLowerCase()}%`];
 
   if (filters.dateFrom) {
     conditions.push("c.chat_date >= ?");
@@ -519,17 +491,17 @@ export function searchChatsByTitle(query: string, filters: SearchFilters = {}): 
     params.push(`${filters.dateTo} 23:59:59`);
   }
 
-  const rows = db
-    .prepare(
-      `SELECT c.id, c.title, c.filename, c.uploaded_at as uploadedAt, c.chat_date as chatDate,
-              c.reviewed as reviewed,
-              (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) as messageCount
-       FROM chats_fts
-       JOIN chats c ON c.id = chats_fts.rowid
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY bm25(chats_fts) ASC`
-    )
-    .all(...params) as Array<Omit<ChatSummary, "tags" | "reviewed"> & { reviewed: number }>;
+  const rows = await queryAll<Omit<ChatSummary, "tags" | "reviewed"> & { reviewed: number }>(
+    `SELECT c.id, c.title, c.filename, c.uploaded_at as uploadedAt, c.chat_date as chatDate,
+            c.reviewed as reviewed,
+            (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) as messageCount
+     FROM chats c
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY c.chat_date DESC`,
+    params
+  );
 
-  return rows.map((r) => ({ ...r, reviewed: !!r.reviewed, tags: tagsForChat(r.id) }));
+  return Promise.all(
+    rows.map(async (r) => ({ ...r, reviewed: !!r.reviewed, tags: await tagsForChat(r.id) }))
+  );
 }

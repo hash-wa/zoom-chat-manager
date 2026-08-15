@@ -15,11 +15,10 @@ export default async function ChatDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const chat = getChat(Number(id));
+  const chat = await getChat(Number(id));
   if (!chat) notFound();
 
-  const chatTags = listChatTags();
-  const messageTags = listMessageTags();
+  const [chatTags, messageTags] = await Promise.all([listChatTags(), listMessageTags()]);
 
   return (
     <div className="space-y-4">

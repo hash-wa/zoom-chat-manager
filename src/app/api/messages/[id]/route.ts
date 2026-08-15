@@ -8,10 +8,10 @@ export async function PATCH(req: Request, { params }: Params) {
   const body = (await req.json()) as { starred?: boolean; connected?: boolean };
 
   if (body.starred !== undefined) {
-    setMessageStarred(Number(id), body.starred);
+    await setMessageStarred(Number(id), body.starred);
   }
   if (body.connected !== undefined) {
-    setMessageConnected(Number(id), body.connected);
+    await setMessageConnected(Number(id), body.connected);
   }
   if (body.starred === undefined && body.connected === undefined) {
     return NextResponse.json(
@@ -25,6 +25,6 @@ export async function PATCH(req: Request, { params }: Params) {
 
 export async function DELETE(_req: Request, { params }: Params) {
   const { id } = await params;
-  deleteMessage(Number(id));
+  await deleteMessage(Number(id));
   return NextResponse.json({ ok: true });
 }

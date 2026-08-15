@@ -5,7 +5,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, { params }: Params) {
   const { id } = await params;
-  const chat = getChat(Number(id));
+  const chat = await getChat(Number(id));
   if (!chat) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -20,13 +20,13 @@ export async function PATCH(req: Request, { params }: Params) {
     if (!body.title.trim()) {
       return NextResponse.json({ error: "title is required" }, { status: 400 });
     }
-    renameChat(Number(id), body.title);
+    await renameChat(Number(id), body.title);
   }
   if (body.reviewed !== undefined) {
-    setChatReviewed(Number(id), body.reviewed);
+    await setChatReviewed(Number(id), body.reviewed);
   }
   if (body.notes !== undefined) {
-    setChatNotes(Number(id), body.notes);
+    await setChatNotes(Number(id), body.notes);
   }
 
   return NextResponse.json({ ok: true });
@@ -34,6 +34,6 @@ export async function PATCH(req: Request, { params }: Params) {
 
 export async function DELETE(_req: Request, { params }: Params) {
   const { id } = await params;
-  deleteChat(Number(id));
+  await deleteChat(Number(id));
   return NextResponse.json({ ok: true });
 }

@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import fs from "node:fs";
-import { checkpointForBackup, dbPath } from "@/lib/db";
+import { exportAllTables } from "@/lib/db";
 
+// There's no local file to copy against a remote Turso database (and
+// Vercel's filesystem is ephemeral anyway), so this dumps every table as
+// JSON instead of streaming a raw .db file.
 export async function GET() {
-  checkpointForBackup();
-  const bytes = fs.readFileSync(dbPath);
+  const dump = await exportAllTables();
   const date = new Date().toISOString().slice(0, 10);
 
-  return new NextResponse(new Uint8Array(bytes), {
+  return new NextResponse(JSON.stringify(dump, null, 2), {
     headers: {
-      "Content-Type": "application/vnd.sqlite3",
-      "Content-Disposition": `attachment; filename="zoom-chat-manager-backup-${date}.db"`,
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="zoom-chat-manager-backup-${date}.json"`,
     },
   });
 }

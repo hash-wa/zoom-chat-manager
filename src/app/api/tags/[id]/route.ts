@@ -10,7 +10,7 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
   try {
-    renameTag(Number(id), name);
+    await renameTag(Number(id), name);
   } catch {
     return NextResponse.json(
       { error: "A tag with that name already exists" },
@@ -22,6 +22,6 @@ export async function PATCH(req: Request, { params }: Params) {
 
 export async function DELETE(_req: Request, { params }: Params) {
   const { id } = await params;
-  deleteTag(Number(id));
+  await deleteTag(Number(id));
   return NextResponse.json({ ok: true });
 }

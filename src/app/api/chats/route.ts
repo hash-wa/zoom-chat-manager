@@ -5,7 +5,7 @@ export async function GET(req: NextRequest) {
   const tagParam = req.nextUrl.searchParams.get("tag");
   const tagId = tagParam ? Number(tagParam) : undefined;
   const sort = req.nextUrl.searchParams.get("sort") === "asc" ? "asc" : "desc";
-  const chats = listChats(tagId && !Number.isNaN(tagId) ? tagId : undefined, sort);
+  const chats = await listChats(tagId && !Number.isNaN(tagId) ? tagId : undefined, sort);
   return NextResponse.json({ chats });
 }
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   if (!force) {
     const chatDate = previewChatDate(rawText);
-    const existing = findChatByChatDate(chatDate);
+    const existing = await findChatByChatDate(chatDate);
     if (existing) {
       return NextResponse.json(
         {
@@ -50,6 +50,6 @@ export async function POST(req: NextRequest) {
     filename ||
     `Chat ${new Date().toLocaleString()}`;
 
-  const id = createChat(title, filename, rawText);
+  const id = await createChat(title, filename, rawText);
   return NextResponse.json({ id }, { status: 201 });
 }

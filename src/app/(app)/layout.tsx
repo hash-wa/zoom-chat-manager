@@ -9,11 +9,15 @@ import {
 import Sidebar from "@/components/Sidebar";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const chats = listChats();
-  const tags = listMessageTags();
-  const untaggedCount = countUntaggedHighlights();
-  const linkedInCount = listLinkedInLinkMessages().length;
-  const linksCount = listOtherLinkMessages().length;
+  const [chats, tags, untaggedCount, linkedInLinks, otherLinks] = await Promise.all([
+    listChats(),
+    listMessageTags(),
+    countUntaggedHighlights(),
+    listLinkedInLinkMessages(),
+    listOtherLinkMessages(),
+  ]);
+  const linkedInCount = linkedInLinks.length;
+  const linksCount = otherLinks.length;
 
   return (
     <div className="min-h-screen flex">

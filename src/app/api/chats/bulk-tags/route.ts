@@ -6,7 +6,7 @@ export async function POST(req: Request) {
   if (!body.chatIds?.length || !body.tagName?.trim()) {
     return NextResponse.json({ error: "chatIds and tagName are required" }, { status: 400 });
   }
-  const tag = bulkAddChatTag(body.chatIds, body.tagName);
+  const tag = await bulkAddChatTag(body.chatIds, body.tagName);
   return NextResponse.json({ tag });
 }
 
@@ -15,6 +15,6 @@ export async function DELETE(req: Request) {
   if (!body.chatIds?.length || !body.tagId) {
     return NextResponse.json({ error: "chatIds and tagId are required" }, { status: 400 });
   }
-  bulkRemoveChatTag(body.chatIds, body.tagId);
+  await bulkRemoveChatTag(body.chatIds, body.tagId);
   return NextResponse.json({ ok: true });
 }

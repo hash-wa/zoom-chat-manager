@@ -46,35 +46,3 @@ CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(starred);
 CREATE INDEX IF NOT EXISTS idx_chat_tags_chat_id ON chat_tags(chat_id);
 CREATE INDEX IF NOT EXISTS idx_message_tags_message_id ON message_tags(message_id);
 CREATE INDEX IF NOT EXISTS idx_chats_chat_date ON chats(chat_date);
-
--- External-content FTS5 indexes: the messages/chats tables remain the
--- source of truth, these just mirror their text columns for ranked search.
--- Kept in sync via triggers below rather than at query time.
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-  body, sender, content='messages', content_rowid='id'
-);
-CREATE VIRTUAL TABLE IF NOT EXISTS chats_fts USING fts5(
-  title, content='chats', content_rowid='id'
-);
-
-CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
-  INSERT INTO messages_fts(rowid, body, sender) VALUES (new.id, new.body, new.sender);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
-  INSERT INTO messages_fts(messages_fts, rowid, body, sender) VALUES ('delete', old.id, old.body, old.sender);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
-  INSERT INTO messages_fts(messages_fts, rowid, body, sender) VALUES ('delete', old.id, old.body, old.sender);
-  INSERT INTO messages_fts(rowid, body, sender) VALUES (new.id, new.body, new.sender);
-END;
-
-CREATE TRIGGER IF NOT EXISTS chats_fts_ai AFTER INSERT ON chats BEGIN
-  INSERT INTO chats_fts(rowid, title) VALUES (new.id, new.title);
-END;
-CREATE TRIGGER IF NOT EXISTS chats_fts_ad AFTER DELETE ON chats BEGIN
-  INSERT INTO chats_fts(chats_fts, rowid, title) VALUES ('delete', old.id, old.title);
-END;
-CREATE TRIGGER IF NOT EXISTS chats_fts_au AFTER UPDATE ON chats BEGIN
-  INSERT INTO chats_fts(chats_fts, rowid, title) VALUES ('delete', old.id, old.title);
-  INSERT INTO chats_fts(rowid, title) VALUES (new.id, new.title);
-END;

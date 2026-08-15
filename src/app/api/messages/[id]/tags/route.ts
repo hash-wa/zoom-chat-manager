@@ -9,6 +9,6 @@ export async function POST(req: Request, { params }: Params) {
   if (!tagName || !tagName.trim()) {
     return NextResponse.json({ error: "tagName is required" }, { status: 400 });
   }
-  const tag = addMessageTag(Number(id), tagName);
+  const tag = await addMessageTag(Number(id), tagName);
   return NextResponse.json({ tag }, { status: 201 });
 }
