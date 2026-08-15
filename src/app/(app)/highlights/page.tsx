@@ -8,10 +8,19 @@ import {
   listLinkedInLinkMessages,
   listOtherLinkMessages,
 } from "@/lib/repo";
+import { extractDomains } from "@/lib/links";
 import HighlightCard from "@/components/HighlightCard";
 import HighlightTagHeader from "@/components/HighlightTagHeader";
 import LinkMessageCard from "@/components/LinkMessageCard";
 import type { Highlight, Tag } from "@/lib/repo";
+
+function domainPillClass(active: boolean) {
+  return `px-2.5 py-1 rounded-full border text-sm ${
+    active
+      ? "bg-indigo-600 text-white border-indigo-600"
+      : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+  }`;
+}
 
 function groupByTag(highlights: Highlight[]) {
   const groups = new Map<string, { tag: Tag | null; items: Highlight[] }>();
@@ -43,9 +52,9 @@ function groupByTag(highlights: Highlight[]) {
 export default async function HighlightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tag?: string }>;
+  searchParams: Promise<{ tag?: string; domain?: string }>;
 }) {
-  const { tag } = await searchParams;
+  const { tag, domain } = await searchParams;
   const [highlights, allTags] = await Promise.all([listHighlights(), listMessageTags()]);
 
   if (tag === "untagged") {
@@ -100,7 +109,20 @@ export default async function HighlightsPage({
   }
 
   if (tag === "links") {
-    const messages = await listOtherLinkMessages();
+    const allMessages = await listOtherLinkMessages();
+
+    const domainCounts = new Map<string, number>();
+    for (const m of allMessages) {
+      for (const d of extractDomains(m.body)) {
+        domainCounts.set(d, (domainCounts.get(d) ?? 0) + 1);
+      }
+    }
+    const domains = [...domainCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+    const messages = domain
+      ? allMessages.filter((m) => extractDomains(m.body).includes(domain))
+      : allMessages;
+
     return (
       <div className="space-y-4">
         <div>
@@ -113,12 +135,31 @@ export default async function HighlightsPage({
           </h1>
         </div>
 
+        {domains.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <Link href="/highlights?tag=links" className={domainPillClass(!domain)}>
+              All
+            </Link>
+            {domains.map(([d, count]) => (
+              <Link
+                key={d}
+                href={`/highlights?tag=links&domain=${encodeURIComponent(d)}`}
+                className={domainPillClass(domain === d)}
+              >
+                {d} <span className="opacity-60">({count})</span>
+              </Link>
+            ))}
+          </div>
+        )}
+
         {messages.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No messages with links found.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {domain ? `No messages with links from ${domain}.` : "No messages with links found."}
+          </p>
         ) : (
           <div className="space-y-2">
             {messages.map((m) => (
-              <LinkMessageCard key={m.id} m={m} />
+              <LinkMessageCard key={m.id} m={m} showConnected checkedLabel="Checked" allTags={allTags} />
             ))}
           </div>
         )}

@@ -3,19 +3,24 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { LinkMessage } from "@/lib/repo";
+import type { LinkMessage, Tag } from "@/lib/repo";
 import { splitSender } from "@/lib/parseZoomChat";
 import { linkifyWithHighlight, highlightText } from "@/lib/linkify";
 import { extractReactions } from "@/lib/reactions";
+import TagManager from "@/components/TagManager";
 
 export default function LinkMessageCard({
   m,
   query = "",
   showConnected = false,
+  checkedLabel = "Connected",
+  allTags,
 }: {
   m: LinkMessage;
   query?: string;
   showConnected?: boolean;
+  checkedLabel?: string;
+  allTags?: Tag[];
 }) {
   const router = useRouter();
   const [connected, setConnected] = useState(m.connected);
@@ -38,6 +43,20 @@ export default function LinkMessageCard({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleAddTag(tagName: string) {
+    await fetch(`/api/messages/${m.id}/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tagName }),
+    });
+    router.refresh();
+  }
+
+  async function handleRemoveTag(tagId: number) {
+    await fetch(`/api/messages/${m.id}/tags/${tagId}`, { method: "DELETE" });
+    router.refresh();
   }
 
   return (
@@ -72,19 +91,24 @@ export default function LinkMessageCard({
           ))}
         </div>
       )}
-      {showConnected && (
-        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-          <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              checked={connected}
-              onChange={toggleConnected}
-              disabled={busy}
-            />
-            <span className={connected ? "text-emerald-600 font-medium" : "text-slate-500 dark:text-slate-400"}>
-              {connected ? "Connected" : "Mark as connected"}
-            </span>
-          </label>
+      {(showConnected || allTags) && (
+        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 space-y-2">
+          {showConnected && (
+            <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={connected}
+                onChange={toggleConnected}
+                disabled={busy}
+              />
+              <span className={connected ? "text-emerald-600 font-medium" : "text-slate-500 dark:text-slate-400"}>
+                {connected ? checkedLabel : `Mark as ${checkedLabel.toLowerCase()}`}
+              </span>
+            </label>
+          )}
+          {allTags && (
+            <TagManager tags={m.tags} allTags={allTags} onAdd={handleAddTag} onRemove={handleRemoveTag} />
+          )}
         </div>
       )}
     </div>

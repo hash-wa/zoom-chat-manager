@@ -405,19 +405,22 @@ export type LinkMessage = {
   sender: string;
   body: string;
   connected: boolean;
+  tags: Tag[];
 };
 
 // Not tied to starring/tagging at all - these scan every message in every
 // chat for URLs, independent of the highlight system.
 async function allMessagesWithChat(): Promise<LinkMessage[]> {
-  const rows = await queryAll<Omit<LinkMessage, "connected"> & { connected: number }>(
+  const rows = await queryAll<Omit<LinkMessage, "connected" | "tags"> & { connected: number }>(
     `SELECT m.id, m.chat_id as chatId, c.title as chatTitle, m.seq,
             m.timestamp_raw as timestampRaw, m.sender, m.body, m.connected as connected
      FROM messages m
      JOIN chats c ON c.id = m.chat_id
      ORDER BY c.chat_date DESC, m.seq ASC`
   );
-  return rows.map((r) => ({ ...r, connected: !!r.connected }));
+  return Promise.all(
+    rows.map(async (r) => ({ ...r, connected: !!r.connected, tags: await tagsForMessage(r.id) }))
+  );
 }
 
 export async function listLinkedInLinkMessages(): Promise<LinkMessage[]> {
@@ -459,7 +462,7 @@ export async function searchMessages(
     params.push(`${filters.dateTo} 23:59:59`);
   }
 
-  const rows = await queryAll<Omit<LinkMessage, "connected"> & { connected: number }>(
+  const rows = await queryAll<Omit<LinkMessage, "connected" | "tags"> & { connected: number }>(
     `SELECT m.id, m.chat_id as chatId, c.title as chatTitle, m.seq,
             m.timestamp_raw as timestampRaw, m.sender, m.body, m.connected as connected
      FROM messages m
@@ -469,7 +472,9 @@ export async function searchMessages(
     params
   );
 
-  return rows.map((r) => ({ ...r, connected: !!r.connected }));
+  return Promise.all(
+    rows.map(async (r) => ({ ...r, connected: !!r.connected, tags: await tagsForMessage(r.id) }))
+  );
 }
 
 export async function searchChatsByTitle(
