@@ -22,6 +22,15 @@ function domainPillClass(active: boolean) {
   }`;
 }
 
+// Toggles one domain in/out of the comma-separated ?domain= selection,
+// so multiple domain pills can be active (OR'd together) at once.
+function toggleDomainHref(selected: string[], d: string): string {
+  const next = selected.includes(d) ? selected.filter((x) => x !== d) : [...selected, d];
+  return next.length > 0
+    ? `/highlights?tag=links&domain=${encodeURIComponent(next.join(","))}`
+    : "/highlights?tag=links";
+}
+
 function groupByTag(highlights: Highlight[]) {
   const groups = new Map<string, { tag: Tag | null; items: Highlight[] }>();
   const untaggedKey = "__untagged__";
@@ -110,6 +119,7 @@ export default async function HighlightsPage({
 
   if (tag === "links") {
     const allMessages = await listOtherLinkMessages();
+    const selectedDomains = domain ? domain.split(",").filter(Boolean) : [];
 
     const domainCounts = new Map<string, number>();
     for (const m of allMessages) {
@@ -119,9 +129,10 @@ export default async function HighlightsPage({
     }
     const domains = [...domainCounts.entries()].sort((a, b) => b[1] - a[1]);
 
-    const messages = domain
-      ? allMessages.filter((m) => extractDomains(m.body).includes(domain))
-      : allMessages;
+    const messages =
+      selectedDomains.length > 0
+        ? allMessages.filter((m) => extractDomains(m.body).some((d) => selectedDomains.includes(d)))
+        : allMessages;
 
     return (
       <div className="space-y-4">
@@ -137,14 +148,14 @@ export default async function HighlightsPage({
 
         {domains.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            <Link href="/highlights?tag=links" className={domainPillClass(!domain)}>
+            <Link href="/highlights?tag=links" className={domainPillClass(selectedDomains.length === 0)}>
               All
             </Link>
             {domains.map(([d, count]) => (
               <Link
                 key={d}
-                href={`/highlights?tag=links&domain=${encodeURIComponent(d)}`}
-                className={domainPillClass(domain === d)}
+                href={toggleDomainHref(selectedDomains, d)}
+                className={domainPillClass(selectedDomains.includes(d))}
               >
                 {d} <span className="opacity-60">({count})</span>
               </Link>
@@ -154,7 +165,9 @@ export default async function HighlightsPage({
 
         {messages.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {domain ? `No messages with links from ${domain}.` : "No messages with links found."}
+            {selectedDomains.length > 0
+              ? `No messages with links from ${selectedDomains.join(", ")}.`
+              : "No messages with links found."}
           </p>
         ) : (
           <div className="space-y-2">
