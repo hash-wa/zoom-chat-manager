@@ -15,16 +15,21 @@ export default function LinkMessageCard({
   showConnected = false,
   checkedLabel = "Connected",
   allTags,
+  showActions = false,
 }: {
   m: LinkMessage;
   query?: string;
   showConnected?: boolean;
   checkedLabel?: string;
   allTags?: Tag[];
+  showActions?: boolean;
 }) {
   const router = useRouter();
   const [connected, setConnected] = useState(m.connected);
+  const [starred, setStarred] = useState(m.starred);
   const [busy, setBusy] = useState(false);
+  const [starBusy, setStarBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const { name, to } = splitSender(m.sender);
   const { cleanBody, reactions } = extractReactions(m.body);
 
@@ -45,6 +50,34 @@ export default function LinkMessageCard({
     }
   }
 
+  async function toggleStar() {
+    if (starBusy) return;
+    setStarBusy(true);
+    const next = !starred;
+    setStarred(next);
+    try {
+      await fetch(`/api/messages/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ starred: next }),
+      });
+      router.refresh();
+    } finally {
+      setStarBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm("Delete this message? This cannot be undone.")) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/messages/${m.id}`, { method: "DELETE" });
+      router.refresh();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleAddTag(tagName: string) {
     await fetch(`/api/messages/${m.id}/tags`, {
       method: "POST",
@@ -61,19 +94,43 @@ export default function LinkMessageCard({
 
   return (
     <div
-      className={`bg-white dark:bg-slate-800 border rounded-lg px-3 py-2 transition ${
+      className={`group bg-white dark:bg-slate-800 border rounded-lg px-3 py-2 transition ${
         connected ? "border-emerald-300" : "border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700"
       }`}
     >
-      <Link
-        href={`/chats/${m.chatId}#message-${m.seq}`}
-        className="flex items-baseline gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-      >
-        <span className="font-medium text-slate-900 dark:text-slate-100">{highlightText(name, query)}</span>
-        {to && <span>to {to}</span>}
-        <span>{m.timestampRaw}</span>
-        <span className="text-slate-400 dark:text-slate-500">· {m.chatTitle}</span>
-      </Link>
+      <div className="flex items-start justify-between gap-2">
+        <Link
+          href={`/chats/${m.chatId}#message-${m.seq}`}
+          className="flex items-baseline gap-2 flex-wrap min-w-0 text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+        >
+          <span className="font-medium text-slate-900 dark:text-slate-100">{highlightText(name, query)}</span>
+          {to && <span>to {to}</span>}
+          <span>{m.timestampRaw}</span>
+          <span className="text-slate-400 dark:text-slate-500">· {m.chatTitle}</span>
+        </Link>
+        {showActions && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              aria-label="Delete message"
+              className="text-xs text-slate-300 dark:text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-100"
+            >
+              {deleting ? "…" : "🗑"}
+            </button>
+            <button
+              onClick={toggleStar}
+              disabled={starBusy}
+              aria-label={starred ? "Unstar message" : "Star message"}
+              className={`text-base leading-none ${
+                starred ? "text-amber-500" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
+              }`}
+            >
+              {starred ? "★" : "☆"}
+            </button>
+          </div>
+        )}
+      </div>
       <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap mt-0.5 break-words">
         {linkifyWithHighlight(cleanBody, query)}
       </p>

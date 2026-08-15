@@ -100,7 +100,7 @@ export default async function HighlightsPage({
         ) : (
           <div className="space-y-2">
             {messages.map((m) => (
-              <LinkMessageCard key={m.id} m={m} showConnected />
+              <LinkMessageCard key={m.id} m={m} showConnected showActions />
             ))}
           </div>
         )}
@@ -159,7 +159,14 @@ export default async function HighlightsPage({
         ) : (
           <div className="space-y-2">
             {messages.map((m) => (
-              <LinkMessageCard key={m.id} m={m} showConnected checkedLabel="Checked" allTags={allTags} />
+              <LinkMessageCard
+                key={m.id}
+                m={m}
+                showConnected
+                checkedLabel="Checked"
+                allTags={allTags}
+                showActions
+              />
             ))}
           </div>
         )}
