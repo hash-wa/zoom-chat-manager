@@ -22,13 +22,28 @@ function domainPillClass(active: boolean) {
   }`;
 }
 
+// Distinct styling from the pills above - this is a single on/off switch,
+// not one option among several, so it shouldn't look like a filter pill.
+function toggleButtonClass(active: boolean) {
+  return `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
+    active
+      ? "bg-emerald-600 text-white border-emerald-600"
+      : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+  }`;
+}
+
+function linksHref({ domain, hideDone }: { domain: string[]; hideDone: boolean }): string {
+  const params = new URLSearchParams({ tag: "links" });
+  if (domain.length > 0) params.set("domain", domain.join(","));
+  if (hideDone) params.set("hideDone", "1");
+  return `/highlights?${params.toString()}`;
+}
+
 // Toggles one domain in/out of the comma-separated ?domain= selection,
 // so multiple domain pills can be active (OR'd together) at once.
-function toggleDomainHref(selected: string[], d: string): string {
+function toggleDomainHref(selected: string[], d: string, hideDone: boolean): string {
   const next = selected.includes(d) ? selected.filter((x) => x !== d) : [...selected, d];
-  return next.length > 0
-    ? `/highlights?tag=links&domain=${encodeURIComponent(next.join(","))}`
-    : "/highlights?tag=links";
+  return linksHref({ domain: next, hideDone });
 }
 
 function groupByTag(highlights: Highlight[]) {
@@ -61,9 +76,10 @@ function groupByTag(highlights: Highlight[]) {
 export default async function HighlightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tag?: string; domain?: string }>;
+  searchParams: Promise<{ tag?: string; domain?: string; hideDone?: string }>;
 }) {
-  const { tag, domain } = await searchParams;
+  const { tag, domain, hideDone: hideDoneParam } = await searchParams;
+  const hideDone = hideDoneParam === "1";
   const [highlights, allTags] = await Promise.all([listHighlights(), listMessageTags()]);
 
   if (tag === "untagged") {
@@ -91,7 +107,9 @@ export default async function HighlightsPage({
   }
 
   if (tag === "linkedin") {
-    const messages = await listLinkedInLinkMessages();
+    const allMessages = await listLinkedInLinkMessages();
+    const messages = hideDone ? allMessages.filter((m) => !m.connected) : allMessages;
+
     return (
       <div className="space-y-4">
         <div>
@@ -104,8 +122,17 @@ export default async function HighlightsPage({
           </h1>
         </div>
 
+        <Link
+          href={hideDone ? "/highlights?tag=linkedin" : "/highlights?tag=linkedin&hideDone=1"}
+          className={toggleButtonClass(hideDone)}
+        >
+          <span>{hideDone ? "☑" : "☐"}</span> Hide connected
+        </Link>
+
         {messages.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No messages with LinkedIn links found.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {hideDone ? "No unconnected messages with LinkedIn links." : "No messages with LinkedIn links found."}
+          </p>
         ) : (
           <div className="space-y-2">
             {messages.map((m) => (
@@ -129,10 +156,11 @@ export default async function HighlightsPage({
     }
     const domains = [...domainCounts.entries()].sort((a, b) => b[1] - a[1]);
 
-    const messages =
+    const domainFiltered =
       selectedDomains.length > 0
         ? allMessages.filter((m) => extractDomains(m.body).some((d) => selectedDomains.includes(d)))
         : allMessages;
+    const messages = hideDone ? domainFiltered.filter((m) => !m.connected) : domainFiltered;
 
     return (
       <div className="space-y-4">
@@ -146,15 +174,22 @@ export default async function HighlightsPage({
           </h1>
         </div>
 
+        <Link
+          href={linksHref({ domain: selectedDomains, hideDone: !hideDone })}
+          className={toggleButtonClass(hideDone)}
+        >
+          <span>{hideDone ? "☑" : "☐"}</span> Hide checked
+        </Link>
+
         {domains.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            <Link href="/highlights?tag=links" className={domainPillClass(selectedDomains.length === 0)}>
+            <Link href={linksHref({ domain: [], hideDone })} className={domainPillClass(selectedDomains.length === 0)}>
               All
             </Link>
             {domains.map(([d, count]) => (
               <Link
                 key={d}
-                href={toggleDomainHref(selectedDomains, d)}
+                href={toggleDomainHref(selectedDomains, d, hideDone)}
                 className={domainPillClass(selectedDomains.includes(d))}
               >
                 {d} <span className="opacity-60">({count})</span>
