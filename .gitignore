@@ -26,3 +26,4 @@ npm-debug.log*
 # typescript
 next-env.d.ts
 *.tsbuildinfo
+.claude/settings.json
