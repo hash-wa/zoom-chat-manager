@@ -54,21 +54,16 @@ export default function ChatTitleEditor({
             setEditing(false);
           }
         }}
-        className="text-lg font-semibold text-slate-900 dark:text-slate-100 border-b border-indigo-400 focus:outline-none bg-transparent w-full max-w-md"
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100 border-b border-indigo-400 focus:outline-none bg-transparent w-64"
       />
     );
   }
 
   return (
-    <button
-      onClick={() => setEditing(true)}
-      className="group flex items-baseline gap-2 text-left"
-      title="Click to rename"
-    >
+    <button onClick={() => setEditing(true)} className="group text-left">
       <span className="text-lg font-semibold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 dark:hover:text-indigo-400">
         {title}
       </span>
-      <span className="text-xs text-slate-400 dark:text-slate-500 opacity-0 group-hover:opacity-100">rename</span>
     </button>
   );
 }

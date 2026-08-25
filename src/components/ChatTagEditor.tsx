@@ -30,6 +30,13 @@ export default function ChatTagEditor({
   }
 
   return (
-    <TagManager tags={tags} allTags={allTags} onAdd={handleAdd} onRemove={handleRemove} />
+    <TagManager
+      tags={tags}
+      allTags={allTags}
+      onAdd={handleAdd}
+      onRemove={handleRemove}
+      placeholder="+"
+      compact
+    />
   );
 }

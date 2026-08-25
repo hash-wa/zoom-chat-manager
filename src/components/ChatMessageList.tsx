@@ -2,8 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faLink } from "@fortawesome/free-solid-svg-icons";
+import { faLinkedin } from "@fortawesome/free-brands-svg-icons";
 import type { Message, Tag } from "@/lib/repo";
 import MessageBubble from "@/components/MessageBubble";
+import { hasLinkedInLink, hasOtherLink } from "@/lib/links";
+
+type LinkFilter = "linkedin" | "links" | null;
 
 function textMatches(message: Message, query: string): boolean {
   return (
@@ -11,17 +17,37 @@ function textMatches(message: Message, query: string): boolean {
   );
 }
 
-// A top-level message stays visible if it or any of its (nested) replies
-// match, so a matching reply never loses its surrounding thread context.
-function treeMatches(message: Message, query: string): boolean {
-  return textMatches(message, query) || message.replies.some((r) => treeMatches(r, query));
+function linkFilterMatches(message: Message, filter: LinkFilter): boolean {
+  if (!filter) return true;
+  return filter === "linkedin" ? hasLinkedInLink(message.body) : hasOtherLink(message.body);
 }
 
-function countMatches(messages: Message[], query: string): number {
+// A top-level message stays visible if it or any of its (nested) replies
+// match, so a matching reply never loses its surrounding thread context.
+function treeMatches(message: Message, query: string, filter: LinkFilter): boolean {
+  return (
+    (textMatches(message, query) && linkFilterMatches(message, filter)) ||
+    message.replies.some((r) => treeMatches(r, query, filter))
+  );
+}
+
+function countMatches(messages: Message[], query: string, filter: LinkFilter): number {
   let count = 0;
   for (const m of messages) {
-    if (textMatches(m, query)) count++;
-    count += countMatches(m.replies, query);
+    if (textMatches(m, query) && linkFilterMatches(m, filter)) count++;
+    count += countMatches(m.replies, query, filter);
+  }
+  return count;
+}
+
+// Flattened count of individual messages (including replies) matching a
+// link category - used for the "LinkedIn (N)" / "Links (N)" filter buttons,
+// independent of the text search or the other filter.
+function countLinkMatches(messages: Message[], filter: "linkedin" | "links"): number {
+  let count = 0;
+  for (const m of messages) {
+    if (linkFilterMatches(m, filter)) count++;
+    count += countLinkMatches(m.replies, filter);
   }
   return count;
 }
@@ -41,24 +67,34 @@ function collectIds(messages: Message[]): number[] {
 export default function ChatMessageList({
   messages,
   allTags,
+  showFilters = true,
 }: {
   messages: Message[];
   allTags: Tag[];
+  showFilters?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [linkFilter, setLinkFilter] = useState<LinkFilter>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const normalizedQuery = query.trim().toLowerCase();
 
+  const linkedInCount = useMemo(() => countLinkMatches(messages, "linkedin"), [messages]);
+  const linksCount = useMemo(() => countLinkMatches(messages, "links"), [messages]);
+
   const visible = useMemo(
-    () => (normalizedQuery ? messages.filter((m) => treeMatches(m, normalizedQuery)) : messages),
-    [messages, normalizedQuery]
+    () =>
+      normalizedQuery || linkFilter
+        ? messages.filter((m) => treeMatches(m, normalizedQuery, linkFilter))
+        : messages,
+    [messages, normalizedQuery, linkFilter]
   );
   const matchCount = useMemo(
-    () => (normalizedQuery ? countMatches(messages, normalizedQuery) : 0),
-    [messages, normalizedQuery]
+    () =>
+      normalizedQuery || linkFilter ? countMatches(messages, normalizedQuery, linkFilter) : 0,
+    [messages, normalizedQuery, linkFilter]
   );
 
   function toggleSelected(id: number) {
@@ -102,28 +138,69 @@ export default function ChatMessageList({
 
   return (
     <div className="space-y-2">
-      <div className="relative">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search this chat..."
-          className="w-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-slate-100 rounded-lg pl-3 pr-16 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-        {query && (
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            <span className="text-xs text-slate-400 dark:text-slate-500">
-              {matchCount} match{matchCount === 1 ? "" : "es"}
-            </span>
-            <button
-              onClick={() => setQuery("")}
-              aria-label="Clear search"
-              className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
-            >
-              ×
-            </button>
+      {showFilters && (
+        <>
+          <div className="relative">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search this chat..."
+              className="w-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-slate-100 rounded-lg pl-3 pr-16 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {query && (
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <span className="text-xs text-slate-400 dark:text-slate-500">
+                  {matchCount} match{matchCount === 1 ? "" : "es"}
+                </span>
+                <button
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                >
+                  ×
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          {(linkedInCount > 0 || linksCount > 0) && (
+            <div className="flex flex-wrap gap-2">
+              {linkedInCount > 0 && (
+                <button
+                  onClick={() => setLinkFilter((f) => (f === "linkedin" ? null : "linkedin"))}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-sm ${
+                    linkFilter === "linkedin"
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  <FontAwesomeIcon
+                    icon={faLinkedin}
+                    className={linkFilter === "linkedin" ? "text-white" : "text-[#0A66C2]"}
+                  />
+                  LinkedIn ({linkedInCount})
+                </button>
+              )}
+              {linksCount > 0 && (
+                <button
+                  onClick={() => setLinkFilter((f) => (f === "links" ? null : "links"))}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-sm ${
+                    linkFilter === "links"
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  <FontAwesomeIcon
+                    icon={faLink}
+                    className={linkFilter === "links" ? "text-white" : "text-slate-400 dark:text-slate-500"}
+                  />
+                  Links ({linksCount})
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         {!selectMode ? (
@@ -157,7 +234,11 @@ export default function ChatMessageList({
         {messages.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">No messages could be parsed from this chat.</p>
         ) : visible.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No messages match &ldquo;{query}&rdquo;.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {query
+              ? <>No messages match &ldquo;{query}&rdquo;.</>
+              : `No messages with ${linkFilter === "linkedin" ? "LinkedIn" : "other"} links.`}
+          </p>
         ) : (
           visible.map((message) => (
             <MessageBubble

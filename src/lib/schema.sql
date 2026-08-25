@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS messages (
   body TEXT NOT NULL,
   starred INTEGER NOT NULL DEFAULT 0,
   reply_to_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
-  connected INTEGER NOT NULL DEFAULT 0
+  connected INTEGER NOT NULL DEFAULT 0,
+  low_value_dismissed INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS message_tags (

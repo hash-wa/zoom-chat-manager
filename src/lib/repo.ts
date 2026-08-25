@@ -14,6 +14,7 @@ export type Message = {
   sender: string;
   body: string;
   starred: boolean;
+  lowValueDismissed: boolean;
   tags: Tag[];
   replyToMessageId: number | null;
   replies: Message[];
@@ -210,10 +211,13 @@ export async function getChat(id: number): Promise<ChatDetail | undefined> {
   if (!chat) return undefined;
 
   const messageRows = await queryAll<
-    Omit<Message, "starred" | "tags" | "replies"> & { starred: number }
+    Omit<Message, "starred" | "lowValueDismissed" | "tags" | "replies"> & {
+      starred: number;
+      lowValueDismissed: number;
+    }
   >(
     `SELECT id, chat_id as chatId, seq, timestamp_raw as timestampRaw, sender, body, starred,
-            reply_to_message_id as replyToMessageId
+            low_value_dismissed as lowValueDismissed, reply_to_message_id as replyToMessageId
      FROM messages WHERE chat_id = ? ORDER BY seq ASC`,
     [id]
   );
@@ -221,7 +225,13 @@ export async function getChat(id: number): Promise<ChatDetail | undefined> {
   const byId = new Map<number, Message>();
   await Promise.all(
     messageRows.map(async (m) => {
-      byId.set(m.id, { ...m, starred: !!m.starred, tags: await tagsForMessage(m.id), replies: [] });
+      byId.set(m.id, {
+        ...m,
+        starred: !!m.starred,
+        lowValueDismissed: !!m.lowValueDismissed,
+        tags: await tagsForMessage(m.id),
+        replies: [],
+      });
     })
   );
 
@@ -343,6 +353,16 @@ export async function setMessageConnected(messageId: number, connected: boolean)
   await run("UPDATE messages SET connected = ? WHERE id = ?", [connected ? 1 : 0, messageId]);
 }
 
+export async function setMessageLowValueDismissed(
+  messageId: number,
+  dismissed: boolean
+): Promise<void> {
+  await run("UPDATE messages SET low_value_dismissed = ? WHERE id = ?", [
+    dismissed ? 1 : 0,
+    messageId,
+  ]);
+}
+
 // Any replies nested under this message become top-level (mirroring the
 // schema's ON DELETE SET NULL intent) rather than being deleted along with it.
 export async function deleteMessage(id: number): Promise<void> {
@@ -367,10 +387,15 @@ export async function removeMessageTag(messageId: number, tagId: number): Promis
 }
 
 export async function listHighlights(): Promise<Highlight[]> {
-  const rows = await queryAll<Omit<Highlight, "starred" | "tags" | "replies"> & { starred: number }>(
+  const rows = await queryAll<
+    Omit<Highlight, "starred" | "lowValueDismissed" | "tags" | "replies"> & {
+      starred: number;
+      lowValueDismissed: number;
+    }
+  >(
     `SELECT m.id, m.chat_id as chatId, m.seq, m.timestamp_raw as timestampRaw,
-            m.sender, m.body, m.starred, m.reply_to_message_id as replyToMessageId,
-            c.title as chatTitle
+            m.sender, m.body, m.starred, m.low_value_dismissed as lowValueDismissed,
+            m.reply_to_message_id as replyToMessageId, c.title as chatTitle
      FROM messages m
      JOIN chats c ON c.id = m.chat_id
      WHERE m.starred = 1
@@ -381,6 +406,7 @@ export async function listHighlights(): Promise<Highlight[]> {
     rows.map(async (r) => ({
       ...r,
       starred: !!r.starred,
+      lowValueDismissed: !!r.lowValueDismissed,
       tags: await tagsForMessage(r.id),
       replies: [],
     }))

@@ -45,7 +45,7 @@ function flatten(messages: Message[]): Message[] {
 
 function findLowValueMessages(messages: Message[]): Message[] {
   return flatten(messages)
-    .filter((m) => isLowValue(extractReactions(m.body).cleanBody))
+    .filter((m) => !m.lowValueDismissed && isLowValue(extractReactions(m.body).cleanBody))
     .sort((a, b) => a.seq - b.seq);
 }
 
@@ -54,6 +54,7 @@ export default function LowValueReviewPanel({ messages }: { messages: Message[] 
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number> | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
 
   const candidates = useMemo(() => findLowValueMessages(messages), [messages]);
   const activeSelected = selected ?? new Set(candidates.map((m) => m.id));
@@ -86,6 +87,29 @@ export default function LowValueReviewPanel({ messages }: { messages: Message[] 
     }
   }
 
+  // "Not actually low-value" - keeps the message but stops it from being
+  // flagged by this review again, unlike Delete which removes it outright.
+  async function handleDismiss() {
+    const ids = [...activeSelected];
+    if (ids.length === 0) return;
+    setDismissing(true);
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`/api/messages/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lowValueDismissed: true }),
+          })
+        )
+      );
+      setSelected(null);
+      router.refresh();
+    } finally {
+      setDismissing(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
       <button
@@ -98,14 +122,26 @@ export default function LowValueReviewPanel({ messages }: { messages: Message[] 
       {open && (
         <div className="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-            <span>Short greetings, thanks, reactions typed as text, etc. Uncheck any you want to keep.</span>
-            <button
-              onClick={handleDelete}
-              disabled={deleting || activeSelected.size === 0}
-              className="text-red-600 hover:text-red-800 disabled:opacity-50 shrink-0"
-            >
-              {deleting ? "Deleting..." : `Delete ${activeSelected.size} selected`}
-            </button>
+            <span>
+              Short greetings, thanks, reactions typed as text, etc. Uncheck any you want to keep,
+              or dismiss ones that aren&rsquo;t actually low-value so they stop showing up here.
+            </span>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={handleDismiss}
+                disabled={dismissing || activeSelected.size === 0}
+                className="text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-50"
+              >
+                {dismissing ? "Dismissing..." : `Dismiss ${activeSelected.size} selected`}
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting || activeSelected.size === 0}
+                className="text-red-600 hover:text-red-800 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : `Delete ${activeSelected.size} selected`}
+              </button>
+            </div>
           </div>
           <div className="divide-y divide-slate-100">
             {candidates.map((m) => {

@@ -204,6 +204,9 @@ async function migrate(): Promise<void> {
   if (!(await hasColumn("messages", "connected"))) {
     await runRaw("ALTER TABLE messages ADD COLUMN connected INTEGER NOT NULL DEFAULT 0");
   }
+  if (!(await hasColumn("messages", "low_value_dismissed"))) {
+    await runRaw("ALTER TABLE messages ADD COLUMN low_value_dismissed INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 // App-level export used by /api/backup: there's no local file to copy when

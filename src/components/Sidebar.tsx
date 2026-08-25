@@ -14,9 +14,12 @@ import {
   faLink,
   faMagnifyingGlass,
   faDownload,
+  faCircleCheck,
+  faCircle,
 } from "@fortawesome/free-solid-svg-icons";
 import { faLinkedin } from "@fortawesome/free-brands-svg-icons";
 import type { ChatSummary, TagWithCount } from "@/lib/repo";
+import { formatChatDate } from "@/lib/formatDate";
 import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -345,9 +348,36 @@ export default function Sidebar({
                   <Link
                     key={c.id}
                     href={`/chats/${c.id}`}
-                    className={itemRowClass(activeChatId === String(c.id))}
+                    className={`flex flex-col pl-2 pr-2 py-1 rounded ${
+                      activeChatId === String(c.id)
+                        ? "bg-indigo-50 dark:bg-indigo-950"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-700"
+                    }`}
                   >
-                    {c.title}
+                    <span
+                      title={`${formatChatDate(c.chatDate)} · ${c.messageCount} messages`}
+                      className="block text-[10px] leading-tight text-slate-400 dark:text-slate-500 truncate"
+                    >
+                      {formatChatDate(c.chatDate)} · {c.messageCount} messages
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`min-w-0 flex-1 text-sm truncate ${
+                          activeChatId === String(c.id)
+                            ? "text-indigo-700 dark:text-indigo-400 font-medium"
+                            : "text-slate-600 dark:text-slate-400"
+                        }`}
+                      >
+                        {c.title}
+                      </span>
+                      <FontAwesomeIcon
+                        icon={c.reviewed ? faCircleCheck : faCircle}
+                        title={c.reviewed ? "Reviewed" : "Not reviewed"}
+                        className={`shrink-0 text-sm -translate-y-[1px] ${
+                          c.reviewed ? "text-emerald-600" : "text-slate-300 dark:text-slate-600"
+                        }`}
+                      />
+                    </div>
                   </Link>
                 ))
               )}

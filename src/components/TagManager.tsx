@@ -9,11 +9,15 @@ export default function TagManager({
   allTags,
   onAdd,
   onRemove,
+  placeholder = "Add tag...",
+  compact = false,
 }: {
   tags: Tag[];
   allTags: Tag[];
   onAdd: (name: string) => Promise<void>;
   onRemove: (tagId: number) => Promise<void>;
+  placeholder?: string;
+  compact?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,8 +72,10 @@ export default function TagManager({
               addTag(value);
             }
           }}
-          placeholder="Add tag..."
-          className="text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-slate-100 rounded-full px-2.5 py-1 w-24 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:w-32 transition-all"
+          placeholder={placeholder}
+          className={`text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-slate-100 rounded-full px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${
+            compact ? "w-7 focus:w-28" : "w-24 focus:w-32"
+          }`}
         />
         {value.trim() && (
           <button
