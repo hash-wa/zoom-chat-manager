@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faStar,
@@ -11,7 +11,6 @@ import {
   faBars,
   faChevronDown,
   faChevronRight,
-  faMagnifyingGlass,
   faDownload,
   faCircleCheck,
   faCircle,
@@ -29,58 +28,9 @@ function sectionRowClass(active: boolean) {
 
 export default function Sidebar({ chats }: { chats: ChatSummary[] }) {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [collapsed, setCollapsed] = useState(false);
   const [chatsOpen, setChatsOpen] = useState(true);
-  const [searchQuery, setSearchQuery] = useState(pathname === "/search" ? searchParams.get("q") ?? "" : "");
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFirstSearchRender = useRef(true);
-  // Kept current on every render (not in an effect) so the debounce
-  // callback below can always see the *live* pathname, even if it fires
-  // in the brief window before a just-completed navigation's effects run.
-  const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
-
-  // Live search: navigates a beat after typing stops, so results update
-  // without needing to press Enter. Uses replace (not push) so every
-  // keystroke doesn't pile up in browser history.
-  useEffect(() => {
-    if (isFirstSearchRender.current) {
-      isFirstSearchRender.current = false;
-      return;
-    }
-    const scheduledPathname = pathname;
-    searchDebounceRef.current = setTimeout(() => {
-      // If the user navigated elsewhere while this was pending, let that
-      // navigation stand instead of yanking them back to /search.
-      if (pathnameRef.current !== scheduledPathname) return;
-      const trimmed = searchQuery.trim();
-      if (!trimmed && pathnameRef.current !== "/search") return;
-      router.replace(trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search");
-    }, 300);
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
-
-  // Cancel a pending debounced search-navigation promptly once the
-  // pathname actually changes (the ref check above is the real guard;
-  // this just avoids a needless no-op fire later).
-  useEffect(() => {
-    if (searchDebounceRef.current) {
-      clearTimeout(searchDebounceRef.current);
-      searchDebounceRef.current = null;
-    }
-  }, [pathname]);
-
-  function handleSearchSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    const trimmed = searchQuery.trim();
-    router.replace(trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search");
-  }
 
   const activeChatId = pathname.match(/^\/chats\/(\d+)/)?.[1];
 
@@ -107,14 +57,6 @@ export default function Sidebar({ chats }: { chats: ChatSummary[] }) {
         </button>
 
         <div className="flex flex-col items-center gap-3 mt-4">
-          <Link
-            href="/search"
-            title="Search"
-            className={`text-lg ${pathname === "/search" ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"}`}
-          >
-            <FontAwesomeIcon icon={faMagnifyingGlass} fixedWidth />
-          </Link>
-
           <Link
             href="/highlights"
             title="Tagged Messages"
@@ -190,22 +132,6 @@ export default function Sidebar({ chats }: { chats: ChatSummary[] }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 space-y-6">
-        <div className="px-2">
-          <form onSubmit={handleSearchSubmit} className="relative">
-            <FontAwesomeIcon
-              icon={faMagnifyingGlass}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
-              size="xs"
-            />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search all chats..."
-              className="w-full text-sm border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-slate-100 rounded-lg pl-7 pr-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </form>
-        </div>
-
         <div className="px-2">
           <Link
             href="/highlights"

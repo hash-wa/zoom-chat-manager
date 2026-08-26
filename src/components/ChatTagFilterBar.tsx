@@ -4,10 +4,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { TagWithCount } from "@/lib/repo";
 
-function buildHref(tagId: number | undefined, sort: "asc" | "desc") {
+type Query = { sort: "asc" | "desc"; q?: string; from?: string; to?: string };
+
+function buildHref(tagId: number | undefined, query: Query) {
   const params = new URLSearchParams();
   if (tagId) params.set("tag", String(tagId));
-  if (sort === "asc") params.set("sort", "asc");
+  if (query.sort === "asc") params.set("sort", "asc");
+  if (query.q) params.set("q", query.q);
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
   const qs = params.toString();
   return qs ? `/chats?${qs}` : "/chats";
 }
@@ -24,58 +29,51 @@ export default function ChatTagFilterBar({
   tags,
   activeTagId,
   sort,
+  q,
+  from,
+  to,
 }: {
   tags: TagWithCount[];
   activeTagId?: number;
   sort: "asc" | "desc";
+  q?: string;
+  from?: string;
+  to?: string;
 }) {
   const router = useRouter();
+  const query: Query = { sort, q, from, to };
 
   async function handleRemove(tagId: number, tagName: string) {
     if (!confirm(`Delete tag "${tagName}"? It will be removed from every chat.`)) return;
     await fetch(`/api/tags/${tagId}`, { method: "DELETE" });
     if (activeTagId === tagId) {
-      router.push(buildHref(undefined, sort));
+      router.push(buildHref(undefined, query));
     }
     router.refresh();
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap gap-2 text-sm">
-        <Link href={buildHref(undefined, sort)} className={pillClass(!activeTagId)}>
-          All
-        </Link>
-        {tags.map((t) => (
-          <div
-            key={t.id}
-            className={`${pillClass(activeTagId === t.id)} inline-flex items-center gap-1 pr-1.5`}
-          >
-            <Link href={buildHref(t.id, sort)} className="hover:underline">
-              {t.name} <span className="opacity-60">({t.count})</span>
-            </Link>
-            <button
-              onClick={() => handleRemove(t.id, t.name)}
-              aria-label={`Delete tag ${t.name}`}
-              className="opacity-60 hover:opacity-100 leading-none"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex gap-2 text-sm">
-        <Link
-          href={buildHref(activeTagId, "desc")}
-          className={pillClass(sort === "desc")}
+    <div className="flex flex-wrap gap-2 text-sm">
+      <Link href={buildHref(undefined, query)} className={pillClass(!activeTagId)}>
+        All
+      </Link>
+      {tags.map((t) => (
+        <div
+          key={t.id}
+          className={`${pillClass(activeTagId === t.id)} inline-flex items-center gap-1 pr-1.5`}
         >
-          Newest first
-        </Link>
-        <Link href={buildHref(activeTagId, "asc")} className={pillClass(sort === "asc")}>
-          Oldest first
-        </Link>
-      </div>
+          <Link href={buildHref(t.id, query)} className="hover:underline">
+            {t.name} <span className="opacity-60">({t.count})</span>
+          </Link>
+          <button
+            onClick={() => handleRemove(t.id, t.name)}
+            aria-label={`Delete tag ${t.name}`}
+            className="opacity-60 hover:opacity-100 leading-none"
+          >
+            ×
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
