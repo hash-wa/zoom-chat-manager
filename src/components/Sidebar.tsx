@@ -11,14 +11,12 @@ import {
   faBars,
   faChevronDown,
   faChevronRight,
-  faLink,
   faMagnifyingGlass,
   faDownload,
   faCircleCheck,
   faCircle,
 } from "@fortawesome/free-solid-svg-icons";
-import { faLinkedin } from "@fortawesome/free-brands-svg-icons";
-import type { ChatSummary, TagWithCount } from "@/lib/repo";
+import type { ChatSummary } from "@/lib/repo";
 import { formatChatDate } from "@/lib/formatDate";
 import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -29,31 +27,12 @@ function sectionRowClass(active: boolean) {
   }`;
 }
 
-function itemRowClass(active: boolean) {
-  return `block px-2 py-1 rounded text-sm truncate ${
-    active ? "bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400" : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
-  }`;
-}
-
-export default function Sidebar({
-  chats,
-  tags,
-  untaggedCount,
-  linkedInCount,
-  linksCount,
-}: {
-  chats: ChatSummary[];
-  tags: TagWithCount[];
-  untaggedCount: number;
-  linkedInCount: number;
-  linksCount: number;
-}) {
+export default function Sidebar({ chats }: { chats: ChatSummary[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [collapsed, setCollapsed] = useState(false);
   const [chatsOpen, setChatsOpen] = useState(true);
-  const [highlightsOpen, setHighlightsOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState(pathname === "/search" ? searchParams.get("q") ?? "" : "");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstSearchRender = useRef(true);
@@ -104,7 +83,6 @@ export default function Sidebar({
   }
 
   const activeChatId = pathname.match(/^\/chats\/(\d+)/)?.[1];
-  const activeTag = pathname === "/highlights" ? searchParams.get("tag") : null;
 
   // Mirrors whatever sort order is active on /chats, so the sidebar list
   // never disagrees with the page you're looking at.
@@ -137,53 +115,13 @@ export default function Sidebar({
             <FontAwesomeIcon icon={faMagnifyingGlass} fixedWidth />
           </Link>
 
-          <div className="relative group">
-            <Link
-              href="/highlights"
-              title={`Highlights (${tags.length + 2})`}
-              className={`block text-lg ${pathname === "/highlights" ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"}`}
-            >
-              <FontAwesomeIcon icon={faStar} fixedWidth />
-            </Link>
-            <div className="hidden group-hover:block absolute left-full top-0 -ml-1 pl-3 z-50">
-              <div className="w-56 max-h-96 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-2">
-                <div className="px-3 py-1 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase">
-                  Highlights
-                </div>
-                <Link
-                  href="/highlights?tag=linkedin"
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  <FontAwesomeIcon icon={faLinkedin} className="text-[#0A66C2]" fixedWidth />
-                  LinkedIn <span className="text-xs text-slate-400 dark:text-slate-500">({linkedInCount})</span>
-                </Link>
-                <Link
-                  href="/highlights?tag=links"
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  <FontAwesomeIcon icon={faLink} className="text-slate-400 dark:text-slate-500" fixedWidth />
-                  Links <span className="text-xs text-slate-400 dark:text-slate-500">({linksCount})</span>
-                </Link>
-                {tags.map((t) => (
-                  <Link
-                    key={t.id}
-                    href={`/highlights?tag=${t.id}`}
-                    className="block px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 truncate"
-                  >
-                    {t.name} <span className="text-xs text-slate-400 dark:text-slate-500">({t.count})</span>
-                  </Link>
-                ))}
-                {untaggedCount > 0 && (
-                  <Link
-                    href="/highlights?tag=untagged"
-                    className="block px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-                  >
-                    Untagged <span className="text-xs text-slate-400 dark:text-slate-500">({untaggedCount})</span>
-                  </Link>
-                )}
-              </div>
-            </div>
-          </div>
+          <Link
+            href="/highlights"
+            title="Tagged Messages"
+            className={`block text-lg ${pathname === "/highlights" ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"}`}
+          >
+            <FontAwesomeIcon icon={faStar} fixedWidth />
+          </Link>
 
           <div className="relative group">
             <Link
@@ -269,57 +207,12 @@ export default function Sidebar({
         </div>
 
         <div className="px-2">
-          <div className="flex items-center gap-1 px-2">
-            <Link
-              href="/highlights"
-              className={`flex items-center gap-2 ${sectionRowClass(pathname === "/highlights")}`}
-            >
-              <FontAwesomeIcon icon={faStar} fixedWidth className="text-amber-400" />
-              Highlights ({tags.length + 2})
-            </Link>
-            <button
-              onClick={() => setHighlightsOpen((o) => !o)}
-              aria-label="Toggle highlights list"
-              className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 px-1 shrink-0"
-            >
-              <FontAwesomeIcon icon={highlightsOpen ? faChevronDown : faChevronRight} size="xs" />
-            </button>
-          </div>
-          {highlightsOpen && (
-            <div className="ml-2 space-y-0.5 mt-1">
-              <Link
-                href="/highlights?tag=linkedin"
-                className={`flex items-center gap-2 ${itemRowClass(activeTag === "linkedin")}`}
-              >
-                <FontAwesomeIcon icon={faLinkedin} className="text-[#0A66C2]" fixedWidth />
-                LinkedIn <span className="text-xs text-slate-400 dark:text-slate-500">({linkedInCount})</span>
-              </Link>
-              <Link
-                href="/highlights?tag=links"
-                className={`flex items-center gap-2 ${itemRowClass(activeTag === "links")}`}
-              >
-                <FontAwesomeIcon icon={faLink} className="text-slate-400 dark:text-slate-500" fixedWidth />
-                Links <span className="text-xs text-slate-400 dark:text-slate-500">({linksCount})</span>
-              </Link>
-              {tags.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/highlights?tag=${t.id}`}
-                  className={itemRowClass(activeTag === String(t.id))}
-                >
-                  {t.name} <span className="text-xs text-slate-400 dark:text-slate-500">({t.count})</span>
-                </Link>
-              ))}
-              {untaggedCount > 0 && (
-                <Link
-                  href="/highlights?tag=untagged"
-                  className={itemRowClass(activeTag === "untagged")}
-                >
-                  Untagged <span className="text-xs text-slate-400 dark:text-slate-500">({untaggedCount})</span>
-                </Link>
-              )}
-            </div>
-          )}
+          <Link
+            href="/highlights"
+            className={`flex items-center gap-2 px-2 ${sectionRowClass(pathname === "/highlights")}`}
+          >
+            Tagged Messages
+          </Link>
         </div>
 
         <div className="px-2">

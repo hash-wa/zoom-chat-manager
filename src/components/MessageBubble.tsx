@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTrashCan, faCircleCheck, faCircle } from "@fortawesome/free-solid-svg-icons";
 import type { Message, Tag } from "@/lib/repo";
 import { splitSender } from "@/lib/parseZoomChat";
 import { linkifyWithHighlight, highlightText } from "@/lib/linkify";
@@ -27,7 +29,9 @@ export default function MessageBubble({
 }) {
   const router = useRouter();
   const [starred, setStarred] = useState(message.starred);
+  const [connected, setConnected] = useState(message.connected);
   const [busy, setBusy] = useState(false);
+  const [connectedBusy, setConnectedBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const { name, to } = splitSender(message.sender);
   const { cleanBody, reactions } = extractReactions(message.body);
@@ -46,6 +50,23 @@ export default function MessageBubble({
       router.refresh();
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function toggleConnected() {
+    if (connectedBusy) return;
+    setConnectedBusy(true);
+    const next = !connected;
+    setConnected(next);
+    try {
+      await fetch(`/api/messages/${message.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connected: next }),
+      });
+      router.refresh();
+    } finally {
+      setConnectedBusy(false);
     }
   }
 
@@ -88,14 +109,16 @@ export default function MessageBubble({
         className={`group rounded-lg px-3 py-2 border scroll-mt-20 ${
           starred
             ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
-            : isReply
-              ? "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700"
-              : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+            : connected
+              ? "bg-white dark:bg-slate-800 border-emerald-300 dark:border-emerald-700"
+              : isReply
+                ? "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
         }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-2 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
               {selectMode && (
                 <input
                   type="checkbox"
@@ -114,6 +137,25 @@ export default function MessageBubble({
               </span>
               {to && <span className="text-xs text-slate-400 dark:text-slate-500">to {to}</span>}
               <span className="text-xs text-slate-400 dark:text-slate-500">{message.timestampRaw}</span>
+              <button
+                onClick={toggleStar}
+                disabled={busy}
+                aria-label={starred ? "Unstar message" : "Star message"}
+                className={`text-base leading-none opacity-0 group-hover:opacity-100 transition ${
+                  starred ? "text-amber-500" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
+                }`}
+              >
+                {starred ? "★" : "☆"}
+              </button>
+              <TagManager
+                tags={message.tags}
+                allTags={allTags}
+                onAdd={handleAddTag}
+                onRemove={handleRemoveTag}
+                placeholder="+"
+                compact
+                inputHoverOnly
+              />
             </div>
             <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap mt-0.5 break-words">
               {linkifyWithHighlight(cleanBody, query)}
@@ -135,36 +177,25 @@ export default function MessageBubble({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
+              onClick={toggleConnected}
+              disabled={connectedBusy}
+              aria-label={connected ? "Mark as unchecked" : "Mark as checked"}
+              className={`text-base leading-none opacity-0 group-hover:opacity-100 transition disabled:opacity-50 ${
+                connected ? "text-emerald-600 hover:text-emerald-800" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
+              }`}
+            >
+              <FontAwesomeIcon icon={connected ? faCircleCheck : faCircle} />
+            </button>
+            <button
               onClick={handleDelete}
               disabled={deleting}
               aria-label="Delete message"
-              className="text-xs text-slate-300 dark:text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-100"
+              className="text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-100"
             >
-              {deleting ? "…" : "🗑"}
-            </button>
-            <button
-              onClick={toggleStar}
-              disabled={busy}
-              aria-label={starred ? "Unstar message" : "Star message"}
-              className={`text-lg leading-none ${
-                starred ? "text-amber-500" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
-              }`}
-            >
-              {starred ? "★" : "☆"}
+              <FontAwesomeIcon icon={faTrashCan} fixedWidth />
             </button>
           </div>
         </div>
-
-        {starred && (
-          <div className="mt-2 pt-2 border-t border-amber-200 dark:border-amber-800">
-            <TagManager
-              tags={message.tags}
-              allTags={allTags}
-              onAdd={handleAddTag}
-              onRemove={handleRemoveTag}
-            />
-          </div>
-        )}
       </div>
 
       {message.replies.length > 0 && (

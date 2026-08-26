@@ -14,6 +14,7 @@ export type Message = {
   sender: string;
   body: string;
   starred: boolean;
+  connected: boolean;
   lowValueDismissed: boolean;
   tags: Tag[];
   replyToMessageId: number | null;
@@ -211,13 +212,14 @@ export async function getChat(id: number): Promise<ChatDetail | undefined> {
   if (!chat) return undefined;
 
   const messageRows = await queryAll<
-    Omit<Message, "starred" | "lowValueDismissed" | "tags" | "replies"> & {
+    Omit<Message, "starred" | "connected" | "lowValueDismissed" | "tags" | "replies"> & {
       starred: number;
+      connected: number;
       lowValueDismissed: number;
     }
   >(
     `SELECT id, chat_id as chatId, seq, timestamp_raw as timestampRaw, sender, body, starred,
-            low_value_dismissed as lowValueDismissed, reply_to_message_id as replyToMessageId
+            connected, low_value_dismissed as lowValueDismissed, reply_to_message_id as replyToMessageId
      FROM messages WHERE chat_id = ? ORDER BY seq ASC`,
     [id]
   );
@@ -228,6 +230,7 @@ export async function getChat(id: number): Promise<ChatDetail | undefined> {
       byId.set(m.id, {
         ...m,
         starred: !!m.starred,
+        connected: !!m.connected,
         lowValueDismissed: !!m.lowValueDismissed,
         tags: await tagsForMessage(m.id),
         replies: [],
@@ -388,14 +391,16 @@ export async function removeMessageTag(messageId: number, tagId: number): Promis
 
 export async function listHighlights(): Promise<Highlight[]> {
   const rows = await queryAll<
-    Omit<Highlight, "starred" | "lowValueDismissed" | "tags" | "replies"> & {
+    Omit<Highlight, "starred" | "lowValueDismissed" | "connected" | "tags" | "replies"> & {
       starred: number;
       lowValueDismissed: number;
+      connected: number;
     }
   >(
     `SELECT m.id, m.chat_id as chatId, m.seq, m.timestamp_raw as timestampRaw,
             m.sender, m.body, m.starred, m.low_value_dismissed as lowValueDismissed,
-            m.reply_to_message_id as replyToMessageId, c.title as chatTitle
+            m.connected as connected, m.reply_to_message_id as replyToMessageId,
+            c.title as chatTitle
      FROM messages m
      JOIN chats c ON c.id = m.chat_id
      WHERE m.starred = 1
@@ -407,19 +412,11 @@ export async function listHighlights(): Promise<Highlight[]> {
       ...r,
       starred: !!r.starred,
       lowValueDismissed: !!r.lowValueDismissed,
+      connected: !!r.connected,
       tags: await tagsForMessage(r.id),
       replies: [],
     }))
   );
-}
-
-export async function countUntaggedHighlights(): Promise<number> {
-  const row = await queryOne<{ c: number }>(
-    `SELECT COUNT(*) as c FROM messages m
-     WHERE m.starred = 1
-       AND NOT EXISTS (SELECT 1 FROM message_tags mt WHERE mt.message_id = m.id)`
-  );
-  return row?.c ?? 0;
 }
 
 export type LinkMessage = {
@@ -435,9 +432,11 @@ export type LinkMessage = {
   tags: Tag[];
 };
 
-// Not tied to starring/tagging at all - these scan every message in every
-// chat for URLs, independent of the highlight system.
-async function allMessagesWithChat(): Promise<LinkMessage[]> {
+// Not tied to starring/tagging at all - every message in every chat,
+// independent of the highlight system. Used to scan for URLs and to let the
+// highlights page pull in matches (tag, LinkedIn, Links) regardless of
+// starred status.
+export async function listAllMessages(): Promise<LinkMessage[]> {
   const rows = await queryAll<
     Omit<LinkMessage, "connected" | "starred" | "tags"> & { connected: number; starred: number }
   >(
@@ -459,12 +458,12 @@ async function allMessagesWithChat(): Promise<LinkMessage[]> {
 }
 
 export async function listLinkedInLinkMessages(): Promise<LinkMessage[]> {
-  const all = await allMessagesWithChat();
+  const all = await listAllMessages();
   return all.filter((m) => hasLinkedInLink(m.body));
 }
 
 export async function listOtherLinkMessages(): Promise<LinkMessage[]> {
-  const all = await allMessagesWithChat();
+  const all = await listAllMessages();
   return all.filter((m) => hasOtherLink(m.body));
 }
 

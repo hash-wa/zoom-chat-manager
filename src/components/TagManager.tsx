@@ -11,6 +11,7 @@ export default function TagManager({
   onRemove,
   placeholder = "Add tag...",
   compact = false,
+  inputHoverOnly = false,
 }: {
   tags: Tag[];
   allTags: Tag[];
@@ -18,6 +19,10 @@ export default function TagManager({
   onRemove: (tagId: number) => Promise<void>;
   placeholder?: string;
   compact?: boolean;
+  // Fades the add-tag input in only when a `.group` ancestor is hovered/
+  // focused-within, so existing tag chips stay visible while the "add"
+  // affordance stays out of the way until needed.
+  inputHoverOnly?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +60,11 @@ export default function TagManager({
           e.preventDefault();
           addTag(value);
         }}
-        className="relative flex items-center gap-1"
+        className={`relative flex items-center gap-1 ${
+          inputHoverOnly
+            ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition"
+            : ""
+        }`}
       >
         <input
           value={value}

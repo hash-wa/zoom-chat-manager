@@ -1,292 +1,292 @@
 import Link from "next/link";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLinkedin } from "@fortawesome/free-brands-svg-icons";
-import { faLink } from "@fortawesome/free-solid-svg-icons";
-import {
-  listHighlights,
-  listMessageTags,
-  listLinkedInLinkMessages,
-  listOtherLinkMessages,
-} from "@/lib/repo";
-import { extractDomains } from "@/lib/links";
-import HighlightCard from "@/components/HighlightCard";
-import HighlightTagHeader from "@/components/HighlightTagHeader";
+import { faLink, faStar, faCircleCheck, faCircle } from "@fortawesome/free-solid-svg-icons";
+import { listAllMessages, listMessageTags } from "@/lib/repo";
+import { extractDomains, hasLinkedInLink, hasOtherLink } from "@/lib/links";
 import LinkMessageCard from "@/components/LinkMessageCard";
-import type { Highlight, Tag } from "@/lib/repo";
+import type { LinkMessage } from "@/lib/repo";
 
-function domainPillClass(active: boolean) {
-  return `px-2.5 py-1 rounded-full border text-sm ${
+const UNTAGGED = "untagged";
+
+function pillClass(active: boolean) {
+  return `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-sm ${
     active
       ? "bg-indigo-600 text-white border-indigo-600"
       : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
   }`;
 }
 
-// Distinct styling from the pills above - this is a single on/off switch,
-// not one option among several, so it shouldn't look like a filter pill.
-function toggleButtonClass(active: boolean) {
-  return `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
-    active
-      ? "bg-emerald-600 text-white border-emerald-600"
-      : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
-  }`;
+function groupLabelClass() {
+  return "text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5";
 }
 
-function linksHref({ domain, hideDone }: { domain: string[]; hideDone: boolean }): string {
-  const params = new URLSearchParams({ tag: "links" });
+function toggle(list: string[], value: string): string[] {
+  return list.includes(value) ? list.filter((x) => x !== value) : [...list, value];
+}
+
+function buildHref({
+  tags,
+  sources,
+  domain,
+  checked,
+}: {
+  tags: string[];
+  sources: string[];
+  domain: string[];
+  checked: "1" | "0" | null;
+}): string {
+  const params = new URLSearchParams();
+  if (tags.length > 0) params.set("tags", tags.join(","));
+  if (sources.length > 0) params.set("sources", sources.join(","));
   if (domain.length > 0) params.set("domain", domain.join(","));
-  if (hideDone) params.set("hideDone", "1");
-  return `/highlights?${params.toString()}`;
+  if (checked) params.set("checked", checked);
+  const qs = params.toString();
+  return qs ? `/highlights?${qs}` : "/highlights";
 }
 
-// Toggles one domain in/out of the comma-separated ?domain= selection,
-// so multiple domain pills can be active (OR'd together) at once.
-function toggleDomainHref(selected: string[], d: string, hideDone: boolean): string {
-  const next = selected.includes(d) ? selected.filter((x) => x !== d) : [...selected, d];
-  return linksHref({ domain: next, hideDone });
-}
-
-function groupByTag(highlights: Highlight[]) {
-  const groups = new Map<string, { tag: Tag | null; items: Highlight[] }>();
-  const untaggedKey = "__untagged__";
-
-  for (const h of highlights) {
-    if (h.tags.length === 0) {
-      const g = groups.get(untaggedKey) ?? { tag: null, items: [] };
-      g.items.push(h);
-      groups.set(untaggedKey, g);
-      continue;
-    }
-    for (const tag of h.tags) {
-      const key = String(tag.id);
-      const g = groups.get(key) ?? { tag, items: [] };
-      g.items.push(h);
-      groups.set(key, g);
-    }
-  }
-
-  const entries = [...groups.values()].sort((a, b) => {
-    if (!a.tag) return 1;
-    if (!b.tag) return -1;
-    return a.tag.name.localeCompare(b.tag.name);
-  });
-  return entries;
-}
+type DisplayItem = LinkMessage & { showConnected: boolean };
 
 export default async function HighlightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tag?: string; domain?: string; hideDone?: string }>;
+  searchParams: Promise<{ tags?: string; sources?: string; domain?: string; checked?: string }>;
 }) {
-  const { tag, domain, hideDone: hideDoneParam } = await searchParams;
-  const hideDone = hideDoneParam === "1";
-  const [highlights, allTags] = await Promise.all([listHighlights(), listMessageTags()]);
+  const { tags: tagsParam, sources: sourcesParam, domain: domainParam, checked: checkedParam } =
+    await searchParams;
+  const selectedTags = tagsParam ? tagsParam.split(",").filter(Boolean) : [];
+  const selectedTagIds = selectedTags.filter((t) => t !== UNTAGGED);
+  const wantsUntagged = selectedTags.includes(UNTAGGED);
+  const selectedSources = sourcesParam ? sourcesParam.split(",").filter(Boolean) : [];
+  const selectedDomains = domainParam ? domainParam.split(",").filter(Boolean) : [];
+  const checkedState = checkedParam === "1" ? "checked" : checkedParam === "0" ? "unchecked" : null;
+  const wantsLinkedIn = selectedSources.includes("linkedin");
+  const wantsLinks = selectedSources.includes("links");
 
-  if (tag === "untagged") {
-    const filtered = highlights.filter((h) => h.tags.length === 0);
-    return (
-      <div className="space-y-4">
-        <div>
-          <Link href="/highlights" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-            ← All highlights
-          </Link>
-          <h1 className="text-lg font-semibold mt-1">Untagged</h1>
-        </div>
+  const [allMessages, messageTags] = await Promise.all([listAllMessages(), listMessageTags()]);
 
-        {filtered.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No untagged starred messages.</p>
-        ) : (
-          <div className="space-y-2">
-            {filtered.map((h) => (
-              <HighlightCard key={h.id} h={h} allTags={allTags} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
+  const starredMessages = allMessages.filter((m) => m.starred);
+  const allLinkedIn = allMessages.filter((m) => hasLinkedInLink(m.body));
+  const allLinks = allMessages.filter((m) => hasOtherLink(m.body));
+
+  // Every capsule (Star/LinkedIn/Links/Tag) pulls its own matching messages
+  // into the pool regardless of starred status - selecting a tag shows
+  // every message with that tag, not just the ones already starred.
+  const merged = new Map<number, DisplayItem>();
+  for (const m of starredMessages) {
+    merged.set(m.id, { ...m, showConnected: true });
   }
 
-  if (tag === "linkedin") {
-    const allMessages = await listLinkedInLinkMessages();
-    const messages = hideDone ? allMessages.filter((m) => !m.connected) : allMessages;
+  let linksDomainCounts: Array<[string, number]> = [];
+  if (wantsLinks) {
+    const counts = new Map<string, number>();
+    for (const m of allLinks) {
+      for (const d of extractDomains(m.body)) counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
+    linksDomainCounts = [...counts.entries()].sort((a, b) => b[1] - a[1]);
 
-    return (
-      <div className="space-y-4">
-        <div>
-          <Link href="/highlights" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-            ← All highlights
-          </Link>
-          <h1 className="text-lg font-semibold mt-1 flex items-center gap-2">
-            <FontAwesomeIcon icon={faLinkedin} className="text-[#0A66C2]" />
-            LinkedIn links
-          </h1>
-        </div>
-
-        <Link
-          href={hideDone ? "/highlights?tag=linkedin" : "/highlights?tag=linkedin&hideDone=1"}
-          className={toggleButtonClass(hideDone)}
-        >
-          <span>{hideDone ? "☑" : "☐"}</span> Hide connected
-        </Link>
-
-        {messages.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {hideDone ? "No unconnected messages with LinkedIn links." : "No messages with LinkedIn links found."}
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {messages.map((m) => (
-              <LinkMessageCard key={m.id} m={m} showConnected showActions />
-            ))}
-          </div>
-        )}
-      </div>
-    );
+    const filtered =
+      selectedDomains.length > 0
+        ? allLinks.filter((m) => extractDomains(m.body).some((d) => selectedDomains.includes(d)))
+        : allLinks;
+    for (const m of filtered) {
+      merged.set(m.id, { ...m, showConnected: true });
+    }
   }
 
-  if (tag === "links") {
-    const allMessages = await listOtherLinkMessages();
-    const selectedDomains = domain ? domain.split(",").filter(Boolean) : [];
+  if (wantsLinkedIn) {
+    for (const m of allLinkedIn) {
+      merged.set(m.id, { ...m, showConnected: true });
+    }
+  }
 
-    const domainCounts = new Map<string, number>();
+  if (selectedTagIds.length > 0) {
     for (const m of allMessages) {
-      for (const d of extractDomains(m.body)) {
-        domainCounts.set(d, (domainCounts.get(d) ?? 0) + 1);
+      if (m.tags.some((t) => selectedTagIds.includes(String(t.id)))) {
+        merged.set(m.id, { ...m, showConnected: true });
       }
     }
-    const domains = [...domainCounts.entries()].sort((a, b) => b[1] - a[1]);
-
-    const domainFiltered =
-      selectedDomains.length > 0
-        ? allMessages.filter((m) => extractDomains(m.body).some((d) => selectedDomains.includes(d)))
-        : allMessages;
-    const messages = hideDone ? domainFiltered.filter((m) => !m.connected) : domainFiltered;
-
-    return (
-      <div className="space-y-4">
-        <div>
-          <Link href="/highlights" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-            ← All highlights
-          </Link>
-          <h1 className="text-lg font-semibold mt-1 flex items-center gap-2">
-            <FontAwesomeIcon icon={faLink} className="text-slate-400 dark:text-slate-500" />
-            Links
-          </h1>
-        </div>
-
-        <Link
-          href={linksHref({ domain: selectedDomains, hideDone: !hideDone })}
-          className={toggleButtonClass(hideDone)}
-        >
-          <span>{hideDone ? "☑" : "☐"}</span> Hide checked
-        </Link>
-
-        {domains.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <Link href={linksHref({ domain: [], hideDone })} className={domainPillClass(selectedDomains.length === 0)}>
-              All
-            </Link>
-            {domains.map(([d, count]) => (
-              <Link
-                key={d}
-                href={toggleDomainHref(selectedDomains, d, hideDone)}
-                className={domainPillClass(selectedDomains.includes(d))}
-              >
-                {d} <span className="opacity-60">({count})</span>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {messages.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {selectedDomains.length > 0
-              ? `No messages with links from ${selectedDomains.join(", ")}.`
-              : "No messages with links found."}
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {messages.map((m) => (
-              <LinkMessageCard
-                key={m.id}
-                m={m}
-                showConnected
-                checkedLabel="Checked"
-                allTags={allTags}
-                showActions
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    );
   }
 
-  const tagId = tag ? Number(tag) : undefined;
-  if (tagId && !Number.isNaN(tagId)) {
-    const tagInfo = allTags.find((t) => t.id === tagId);
-    const filtered = highlights.filter((h) => h.tags.some((t) => t.id === tagId));
+  // Untagged narrows whatever's already in the pool down to messages with
+  // no tags at all, rather than pulling in every untagged message across
+  // every chat (which would be most of the database).
+  let scoped = [...merged.values()];
+  const untaggedCount = scoped.filter((m) => m.tags.length === 0).length;
+  if (wantsUntagged) scoped = scoped.filter((m) => m.tags.length === 0);
 
-    return (
-      <div className="space-y-4">
-        <div>
-          <Link href="/highlights" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-            ← All highlights
-          </Link>
-          <div className="mt-1">
-            {tagInfo ? (
-              <HighlightTagHeader tag={tagInfo} large linkToFilter={false} />
-            ) : (
-              <h1 className="text-lg font-semibold">Tag</h1>
-            )}
-          </div>
-        </div>
+  const checkedCount = scoped.filter((m) => m.connected).length;
+  const uncheckedCount = scoped.filter((m) => !m.connected).length;
+  const results =
+    checkedState === "checked"
+      ? scoped.filter((m) => m.connected)
+      : checkedState === "unchecked"
+        ? scoped.filter((m) => !m.connected)
+        : scoped;
 
-        {filtered.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No starred messages with this tag.</p>
-        ) : (
-          <div className="space-y-2">
-            {filtered.map((h) => (
-              <HighlightCard key={h.id} h={h} allTags={allTags} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const groups = groupByTag(highlights);
+  const checkedQueryValue: "1" | "0" | null = checkedState === "checked" ? "1" : checkedState === "unchecked" ? "0" : null;
+  const hasAnyFilter = selectedTags.length > 0 || selectedSources.length > 0 || checkedState !== null;
+  const availableTags = messageTags.filter((t) => t.count > 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <h1 className="text-lg font-semibold">Highlights</h1>
 
-      {highlights.length === 0 ? (
+      <div>
+        <div className={groupLabelClass()}>Source</div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={buildHref({ tags: [], sources: [], domain: [], checked: null })}
+            className={pillClass(!hasAnyFilter)}
+            title="All starred"
+          >
+            <FontAwesomeIcon icon={faStar} className={!hasAnyFilter ? "text-white" : "text-amber-400"} />
+            <span className="opacity-60">({starredMessages.length})</span>
+          </Link>
+          <Link
+            href={buildHref({
+              tags: selectedTags,
+              sources: toggle(selectedSources, "linkedin"),
+              domain: selectedDomains,
+              checked: checkedQueryValue,
+            })}
+            className={pillClass(wantsLinkedIn)}
+            title="LinkedIn"
+          >
+            <FontAwesomeIcon icon={faLinkedin} className={wantsLinkedIn ? "text-white" : "text-[#0A66C2]"} />
+            <span className="opacity-60">({allLinkedIn.length})</span>
+          </Link>
+          <Link
+            href={buildHref({
+              tags: selectedTags,
+              sources: toggle(selectedSources, "links"),
+              domain: selectedDomains,
+              checked: checkedQueryValue,
+            })}
+            className={pillClass(wantsLinks)}
+            title="Links"
+          >
+            <FontAwesomeIcon icon={faLink} className={wantsLinks ? "text-white" : "text-slate-400 dark:text-slate-500"} />
+            <span className="opacity-60">({allLinks.length})</span>
+          </Link>
+        </div>
+      </div>
+
+      {wantsLinks && linksDomainCounts.length > 0 && (
+        <div className="flex flex-wrap gap-2 pl-4 border-l-2 border-slate-200 dark:border-slate-700">
+          <Link
+            href={buildHref({ tags: selectedTags, sources: selectedSources, domain: [], checked: checkedQueryValue })}
+            className={pillClass(selectedDomains.length === 0)}
+          >
+            All domains
+          </Link>
+          {linksDomainCounts.map(([d, count]) => (
+            <Link
+              key={d}
+              href={buildHref({
+                tags: selectedTags,
+                sources: selectedSources,
+                domain: toggle(selectedDomains, d),
+                checked: checkedQueryValue,
+              })}
+              className={pillClass(selectedDomains.includes(d))}
+            >
+              {d} <span className="opacity-60">({count})</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      <div>
+        <div className={groupLabelClass()}>Tag</div>
+        <div className="flex flex-wrap gap-2">
+          {availableTags.map((t) => (
+            <Link
+              key={t.id}
+              href={buildHref({
+                tags: toggle(selectedTags, String(t.id)),
+                sources: selectedSources,
+                domain: selectedDomains,
+                checked: checkedQueryValue,
+              })}
+              className={pillClass(selectedTagIds.includes(String(t.id)))}
+            >
+              {t.name} <span className="opacity-60">({t.count})</span>
+            </Link>
+          ))}
+          {untaggedCount > 0 && (
+            <Link
+              href={buildHref({
+                tags: toggle(selectedTags, UNTAGGED),
+                sources: selectedSources,
+                domain: selectedDomains,
+                checked: checkedQueryValue,
+              })}
+              className={pillClass(wantsUntagged)}
+            >
+              Untagged <span className="opacity-60">({untaggedCount})</span>
+            </Link>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-700 pt-3">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          No starred messages yet. Star a message in any chat to follow up on it here.
+          {results.length} message{results.length === 1 ? "" : "s"}
+        </p>
+        <div className="flex items-center gap-2">
+          <Link
+            href={buildHref({
+              tags: selectedTags,
+              sources: selectedSources,
+              domain: selectedDomains,
+              checked: checkedState === "checked" ? null : "1",
+            })}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
+              checkedState === "checked"
+                ? "bg-emerald-600 text-white border-emerald-600"
+                : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+            }`}
+          >
+            <FontAwesomeIcon icon={faCircleCheck} className={checkedState === "checked" ? "text-white" : "text-emerald-500"} />
+            Checked <span className="opacity-60">({checkedCount})</span>
+          </Link>
+          <Link
+            href={buildHref({
+              tags: selectedTags,
+              sources: selectedSources,
+              domain: selectedDomains,
+              checked: checkedState === "unchecked" ? null : "0",
+            })}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
+              checkedState === "unchecked"
+                ? "bg-slate-600 text-white border-slate-600"
+                : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+            }`}
+          >
+            <FontAwesomeIcon icon={faCircle} className={checkedState === "unchecked" ? "text-white" : "text-slate-400 dark:text-slate-500"} />
+            Unchecked <span className="opacity-60">({uncheckedCount})</span>
+          </Link>
+        </div>
+      </div>
+
+      {results.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {hasAnyFilter ? (
+            "No messages match the selected filters."
+          ) : (
+            <>
+              <FontAwesomeIcon icon={faStar} className="text-amber-400 mr-1" />
+              No starred messages yet. Star a message in any chat to follow up on it here.
+            </>
+          )}
         </p>
       ) : (
-        groups.map((group) => (
-          <div key={group.tag ? group.tag.id : "untagged"} className="space-y-2">
-            <h2>
-              {group.tag ? (
-                <HighlightTagHeader tag={group.tag} />
-              ) : (
-                <Link
-                  href="/highlights?tag=untagged"
-                  className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide hover:text-indigo-600 dark:hover:text-indigo-400"
-                >
-                  Untagged
-                </Link>
-              )}
-            </h2>
-            <div className="space-y-2">
-              {group.items.map((h) => (
-                <HighlightCard key={h.id} h={h} allTags={allTags} />
-              ))}
-            </div>
-          </div>
-        ))
+        <div className="space-y-2">
+          {results.map((m) => (
+            <LinkMessageCard key={m.id} m={m} showConnected={m.showConnected} allTags={messageTags} showActions />
+          ))}
+        </div>
       )}
     </div>
   );

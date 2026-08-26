@@ -1,11 +1,5 @@
 import { Suspense } from "react";
-import {
-  listChats,
-  listMessageTags,
-  countUntaggedHighlights,
-  listLinkedInLinkMessages,
-  listOtherLinkMessages,
-} from "@/lib/repo";
+import { listChats } from "@/lib/repo";
 import Sidebar from "@/components/Sidebar";
 import Skeleton from "@/components/Skeleton";
 
@@ -14,23 +8,8 @@ import Skeleton from "@/components/Skeleton";
 // layout component blocks on its own top-level awaits before React ever
 // gets to render its returned JSX, which would make the fallback dead code.
 async function SidebarData() {
-  const [chats, tags, untaggedCount, linkedInLinks, otherLinks] = await Promise.all([
-    listChats(),
-    listMessageTags(),
-    countUntaggedHighlights(),
-    listLinkedInLinkMessages(),
-    listOtherLinkMessages(),
-  ]);
-
-  return (
-    <Sidebar
-      chats={chats}
-      tags={tags}
-      untaggedCount={untaggedCount}
-      linkedInCount={linkedInLinks.length}
-      linksCount={otherLinks.length}
-    />
-  );
+  const chats = await listChats();
+  return <Sidebar chats={chats} />;
 }
 
 function SidebarSkeleton() {
