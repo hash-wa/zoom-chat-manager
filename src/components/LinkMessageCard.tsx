@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashCan, faCircleCheck, faCircle } from "@fortawesome/free-solid-svg-icons";
 import type { LinkMessage, Tag } from "@/lib/repo";
@@ -17,12 +17,14 @@ export default function LinkMessageCard({
   showConnected = false,
   allTags,
   showActions = false,
+  focused = false,
 }: {
   m: LinkMessage;
   query?: string;
   showConnected?: boolean;
   allTags?: Tag[];
   showActions?: boolean;
+  focused?: boolean;
 }) {
   const router = useRouter();
   const [connected, setConnected] = useState(m.connected);
@@ -30,6 +32,7 @@ export default function LinkMessageCard({
   const [busy, setBusy] = useState(false);
   const [starBusy, setStarBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const { name, to } = splitSender(m.sender);
   const { cleanBody, reactions } = extractReactions(m.body);
 
@@ -92,9 +95,44 @@ export default function LinkMessageCard({
     router.refresh();
   }
 
+  useEffect(() => {
+    if (focused) rootRef.current?.scrollIntoView({ block: "nearest" });
+  }, [focused]);
+
+  // Re-attaches on every render (while focused) rather than depending only
+  // on `focused`, so the closure never goes stale mid-session - toggleStar
+  // etc. are redefined each render and reference the latest connected/busy
+  // state, and without them in the deps a rapid second keypress would
+  // re-invoke a frozen version of the handler still holding the old state.
+  useEffect(() => {
+    if (!focused) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target;
+      if (target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (e.key === "s" && showActions) {
+        e.preventDefault();
+        toggleStar();
+      } else if (e.key === "x" && showConnected) {
+        e.preventDefault();
+        toggleConnected();
+      } else if ((e.key === "Delete" || e.key === "Backspace") && showActions) {
+        e.preventDefault();
+        handleDelete();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  });
+
   return (
     <div
+      ref={rootRef}
       className={`group bg-white dark:bg-slate-800 border rounded-lg px-3 py-2 transition ${
+        focused ? "ring-2 ring-indigo-400 dark:ring-indigo-500" : ""
+      } ${
         connected ? "border-emerald-300" : "border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700"
       }`}
     >
@@ -115,7 +153,7 @@ export default function LinkMessageCard({
                 onClick={toggleStar}
                 disabled={starBusy}
                 aria-label={starred ? "Unstar message" : "Star message"}
-                className={`text-base leading-none opacity-0 group-hover:opacity-100 transition ${
+                className={`text-base leading-none transition ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"} ${
                   starred ? "text-amber-500" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
                 }`}
               >
@@ -159,7 +197,7 @@ export default function LinkMessageCard({
                 onClick={toggleConnected}
                 disabled={busy}
                 aria-label={connected ? "Mark as unchecked" : "Mark as checked"}
-                className={`text-base leading-none opacity-0 group-hover:opacity-100 transition disabled:opacity-50 ${
+                className={`text-base leading-none transition disabled:opacity-50 ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"} ${
                   connected ? "text-emerald-600 hover:text-emerald-800" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
                 }`}
               >
@@ -170,7 +208,7 @@ export default function LinkMessageCard({
               onClick={handleDelete}
               disabled={deleting}
               aria-label="Delete message"
-              className="text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-100"
+              className={`text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 transition disabled:opacity-100 ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             >
               <FontAwesomeIcon icon={faTrashCan} fixedWidth />
             </button>

@@ -4,7 +4,7 @@ import { faLinkedin } from "@fortawesome/free-brands-svg-icons";
 import { faLink, faStar, faCircleCheck, faCircle } from "@fortawesome/free-solid-svg-icons";
 import { listAllMessages, listMessageTags } from "@/lib/repo";
 import { extractDomains, hasLinkedInLink, hasOtherLink } from "@/lib/links";
-import LinkMessageCard from "@/components/LinkMessageCard";
+import HighlightsResultsList from "@/components/HighlightsResultsList";
 import type { LinkMessage } from "@/lib/repo";
 
 const UNTAGGED = "untagged";
@@ -282,11 +282,11 @@ export default async function HighlightsPage({
           )}
         </p>
       ) : (
-        <div className="space-y-2">
-          {results.map((m) => (
-            <LinkMessageCard key={m.id} m={m} showConnected={m.showConnected} allTags={messageTags} showActions />
-          ))}
-        </div>
+        <HighlightsResultsList
+          key={`${tagsParam ?? ""}-${sourcesParam ?? ""}-${domainParam ?? ""}-${checkedParam ?? ""}`}
+          results={results}
+          allTags={messageTags}
+        />
       )}
     </div>
   );

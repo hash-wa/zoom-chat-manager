@@ -9,12 +9,15 @@ import {
   faArrowDownWideShort,
   faArrowUpWideShort,
   faMagnifyingGlass,
+  faCircleCheck,
+  faCircle,
 } from "@fortawesome/free-solid-svg-icons";
 import type { ChatSummary, TagWithCount, LinkMessage, Tag } from "@/lib/repo";
 import ChatCard from "@/components/ChatCard";
 import ChatTagFilterBar from "@/components/ChatTagFilterBar";
 
 type ChatWithMatches = ChatSummary & { matches: LinkMessage[] };
+type CheckedState = "checked" | "unchecked" | null;
 
 function toolbarIconClass(active: boolean) {
   return `w-7 h-7 inline-flex items-center justify-center rounded-lg border text-sm ${
@@ -27,7 +30,7 @@ function toolbarIconClass(active: boolean) {
 function buildHref(
   tagId: number | undefined,
   sort: "asc" | "desc",
-  extra: { q?: string; from?: string; to?: string }
+  extra: { q?: string; from?: string; to?: string; checked?: "1" | "0" | null }
 ) {
   const params = new URLSearchParams();
   if (tagId) params.set("tag", String(tagId));
@@ -35,6 +38,7 @@ function buildHref(
   if (extra.q) params.set("q", extra.q);
   if (extra.from) params.set("from", extra.from);
   if (extra.to) params.set("to", extra.to);
+  if (extra.checked) params.set("checked", extra.checked);
   const qs = params.toString();
   return qs ? `/chats?${qs}` : "/chats";
 }
@@ -48,6 +52,9 @@ export default function ChatsBulkManager({
   query,
   from,
   to,
+  checkedState,
+  checkedCount,
+  uncheckedCount,
 }: {
   chats: ChatWithMatches[];
   allTags: TagWithCount[];
@@ -57,9 +64,14 @@ export default function ChatsBulkManager({
   query: string;
   from: string;
   to: string;
+  checkedState: CheckedState;
+  checkedCount: number;
+  uncheckedCount: number;
 }) {
   const router = useRouter();
-  const hasActiveFilters = Boolean(activeTagId || query || from || to);
+  const checkedQueryValue: "1" | "0" | null =
+    checkedState === "checked" ? "1" : checkedState === "unchecked" ? "0" : null;
+  const hasActiveFilters = Boolean(activeTagId || query || from || to || checkedState);
   const [filterOpen, setFilterOpen] = useState(hasActiveFilters);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -72,6 +84,7 @@ export default function ChatsBulkManager({
   const [toInput, setToInput] = useState(to);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFilterRender = useRef(true);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Instant filtering: navigates a beat after the last change, so results
   // update without needing to press Enter/Apply.
@@ -82,13 +95,56 @@ export default function ChatsBulkManager({
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      router.replace(buildHref(activeTagId, sort, { q: qInput, from: fromInput, to: toInput }));
+      router.replace(buildHref(activeTagId, sort, { q: qInput, from: fromInput, to: toInput, checked: checkedQueryValue }));
     }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qInput, fromInput, toInput]);
+
+  // Focuses the search box whenever it's revealed, whether that came from
+  // clicking the toggle button or from the "/" shortcut below.
+  useEffect(() => {
+    if (filterOpen) searchInputRef.current?.focus();
+  }, [filterOpen]);
+
+  // No dependency array: re-attaches every render so the closure always
+  // sees the latest qInput/fromInput/toInput/filterOpen instead of a frozen
+  // snapshot from whenever the effect last ran (the same staleness issue
+  // fixed earlier for the message-list s/x/Delete handlers).
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Escape must work even while the search box itself has focus, so it
+      // has to run before the isTyping guard below.
+      if (e.key === "Escape") {
+        if (filterOpen) {
+          if (qInput || fromInput || toInput) {
+            // First Escape clears the fields but leaves the panel open.
+            clearSearch();
+          } else {
+            // Second Escape (fields already empty) closes the panel.
+            setFilterOpen(false);
+            (document.activeElement as HTMLElement | null)?.blur();
+          }
+        }
+        return;
+      }
+
+      const target = e.target;
+      if (target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+
+      if (e.key === "/") {
+        e.preventDefault();
+        if (!filterOpen) setFilterOpen(true);
+        else searchInputRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  });
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -117,7 +173,7 @@ export default function ChatsBulkManager({
     setQInput("");
     setFromInput("");
     setToInput("");
-    router.replace(buildHref(activeTagId, sort, {}));
+    router.replace(buildHref(activeTagId, sort, { checked: checkedQueryValue }));
   }
 
   async function handleAddTag() {
@@ -179,7 +235,7 @@ export default function ChatsBulkManager({
           </button>
           <div className="flex items-center gap-1">
             <Link
-              href={buildHref(activeTagId, "desc", { q: query, from, to })}
+              href={buildHref(activeTagId, "desc", { q: query, from, to, checked: checkedQueryValue })}
               title="Newest first"
               aria-label="Sort by newest first"
               className={toolbarIconClass(sort === "desc")}
@@ -187,7 +243,7 @@ export default function ChatsBulkManager({
               <FontAwesomeIcon icon={faArrowDownWideShort} />
             </Link>
             <Link
-              href={buildHref(activeTagId, "asc", { q: query, from, to })}
+              href={buildHref(activeTagId, "asc", { q: query, from, to, checked: checkedQueryValue })}
               title="Oldest first"
               aria-label="Sort by oldest first"
               className={toolbarIconClass(sort === "asc")}
@@ -208,6 +264,7 @@ export default function ChatsBulkManager({
                 size="xs"
               />
               <input
+                ref={searchInputRef}
                 type="text"
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
@@ -230,18 +287,39 @@ export default function ChatsBulkManager({
               title="To"
               className="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-slate-100 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
-            {(qInput || fromInput || toInput) && (
-              <button
-                type="button"
-                onClick={clearSearch}
-                className="text-xs text-slate-500 dark:text-slate-400 hover:underline shrink-0"
-              >
-                Clear search
-              </button>
-            )}
+            <Link
+              href={buildHref(activeTagId, sort, { q: query, from, to, checked: checkedState === "checked" ? null : "1" })}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
+                checkedState === "checked"
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
+            >
+              <FontAwesomeIcon icon={faCircleCheck} className={checkedState === "checked" ? "text-white" : "text-emerald-500"} />
+              Checked <span className="opacity-60">({checkedCount})</span>
+            </Link>
+            <Link
+              href={buildHref(activeTagId, sort, { q: query, from, to, checked: checkedState === "unchecked" ? null : "0" })}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
+                checkedState === "unchecked"
+                  ? "bg-slate-600 text-white border-slate-600"
+                  : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
+            >
+              <FontAwesomeIcon icon={faCircle} className={checkedState === "unchecked" ? "text-white" : "text-slate-400 dark:text-slate-500"} />
+              Unchecked <span className="opacity-60">({uncheckedCount})</span>
+            </Link>
           </div>
 
-          <ChatTagFilterBar tags={allTags} activeTagId={activeTagId} sort={sort} q={query} from={from} to={to} />
+          <ChatTagFilterBar
+            tags={allTags}
+            activeTagId={activeTagId}
+            sort={sort}
+            q={query}
+            from={from}
+            to={to}
+            checked={checkedQueryValue}
+          />
         </div>
       )}
 
@@ -323,24 +401,19 @@ export default function ChatsBulkManager({
         <p className="text-sm text-slate-500 dark:text-slate-400">No chats match your search or filter.</p>
       ) : (
         <div className={query.trim() ? "space-y-10" : "space-y-3"}>
-          {chats.map((chat) =>
-            selectMode ? (
-              <div key={chat.id} className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={selected.has(chat.id)}
-                  onChange={() => toggle(chat.id)}
-                  aria-label={`Select ${chat.title}`}
-                  className="mt-5 shrink-0"
-                />
-                <div className="flex-1 min-w-0">
-                  <ChatCard chat={chat} allTags={allTags} messageTags={messageTags} query={query} matches={chat.matches} />
-                </div>
-              </div>
-            ) : (
-              <ChatCard key={chat.id} chat={chat} allTags={allTags} messageTags={messageTags} query={query} matches={chat.matches} />
-            )
-          )}
+          {chats.map((chat) => (
+            <ChatCard
+              key={chat.id}
+              chat={chat}
+              allTags={allTags}
+              messageTags={messageTags}
+              query={query}
+              matches={chat.matches}
+              selectMode={selectMode}
+              selected={selected.has(chat.id)}
+              onToggleSelect={toggle}
+            />
+          ))}
         </div>
       )}
     </div>

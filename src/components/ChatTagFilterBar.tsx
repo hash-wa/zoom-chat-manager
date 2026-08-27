@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { TagWithCount } from "@/lib/repo";
 
-type Query = { sort: "asc" | "desc"; q?: string; from?: string; to?: string };
+type Query = { sort: "asc" | "desc"; q?: string; from?: string; to?: string; checked?: "1" | "0" | null };
 
 function buildHref(tagId: number | undefined, query: Query) {
   const params = new URLSearchParams();
@@ -13,6 +13,7 @@ function buildHref(tagId: number | undefined, query: Query) {
   if (query.q) params.set("q", query.q);
   if (query.from) params.set("from", query.from);
   if (query.to) params.set("to", query.to);
+  if (query.checked) params.set("checked", query.checked);
   const qs = params.toString();
   return qs ? `/chats?${qs}` : "/chats";
 }
@@ -32,6 +33,7 @@ export default function ChatTagFilterBar({
   q,
   from,
   to,
+  checked,
 }: {
   tags: TagWithCount[];
   activeTagId?: number;
@@ -39,9 +41,10 @@ export default function ChatTagFilterBar({
   q?: string;
   from?: string;
   to?: string;
+  checked?: "1" | "0" | null;
 }) {
   const router = useRouter();
-  const query: Query = { sort, q, from, to };
+  const query: Query = { sort, q, from, to, checked };
 
   async function handleRemove(tagId: number, tagName: string) {
     if (!confirm(`Delete tag "${tagName}"? It will be removed from every chat.`)) return;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashCan, faCircleCheck, faCircle } from "@fortawesome/free-solid-svg-icons";
 import type { Message, Tag } from "@/lib/repo";
@@ -18,6 +18,7 @@ export default function MessageBubble({
   selectMode = false,
   selected,
   onToggleSelect,
+  focused = false,
 }: {
   message: Message;
   allTags: Tag[];
@@ -26,6 +27,7 @@ export default function MessageBubble({
   selectMode?: boolean;
   selected?: Set<number>;
   onToggleSelect?: (id: number) => void;
+  focused?: boolean;
 }) {
   const router = useRouter();
   const [starred, setStarred] = useState(message.starred);
@@ -33,6 +35,7 @@ export default function MessageBubble({
   const [busy, setBusy] = useState(false);
   const [connectedBusy, setConnectedBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const { name, to } = splitSender(message.sender);
   const { cleanBody, reactions } = extractReactions(message.body);
 
@@ -102,11 +105,46 @@ export default function MessageBubble({
     }
   }
 
+  useEffect(() => {
+    if (focused) rootRef.current?.scrollIntoView({ block: "nearest" });
+  }, [focused]);
+
+  // Re-attaches on every render (while focused) rather than depending only
+  // on `focused`, so the closure never goes stale mid-session - toggleStar
+  // etc. are redefined each render and reference the latest starred/busy
+  // state, and without them in the deps a rapid second keypress would
+  // re-invoke a frozen version of the handler still holding the old state.
+  useEffect(() => {
+    if (!focused) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target;
+      if (target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (e.key === "s") {
+        e.preventDefault();
+        toggleStar();
+      } else if (e.key === "x") {
+        e.preventDefault();
+        toggleConnected();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        handleDelete();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  });
+
   return (
     <div>
       <div
+        ref={rootRef}
         id={`message-${message.seq}`}
         className={`group rounded-lg px-3 py-2 border scroll-mt-20 ${
+          focused ? "ring-2 ring-indigo-400 dark:ring-indigo-500" : ""
+        } ${
           starred
             ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
             : connected
@@ -141,7 +179,7 @@ export default function MessageBubble({
                 onClick={toggleStar}
                 disabled={busy}
                 aria-label={starred ? "Unstar message" : "Star message"}
-                className={`text-base leading-none opacity-0 group-hover:opacity-100 transition ${
+                className={`text-base leading-none transition ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"} ${
                   starred ? "text-amber-500" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
                 }`}
               >
@@ -180,7 +218,7 @@ export default function MessageBubble({
               onClick={toggleConnected}
               disabled={connectedBusy}
               aria-label={connected ? "Mark as unchecked" : "Mark as checked"}
-              className={`text-base leading-none opacity-0 group-hover:opacity-100 transition disabled:opacity-50 ${
+              className={`text-base leading-none transition disabled:opacity-50 ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"} ${
                 connected ? "text-emerald-600 hover:text-emerald-800" : "text-slate-300 dark:text-slate-600 hover:text-slate-400"
               }`}
             >
@@ -190,7 +228,7 @@ export default function MessageBubble({
               onClick={handleDelete}
               disabled={deleting}
               aria-label="Delete message"
-              className="text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-100"
+              className={`text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 transition disabled:opacity-100 ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             >
               <FontAwesomeIcon icon={faTrashCan} fixedWidth />
             </button>

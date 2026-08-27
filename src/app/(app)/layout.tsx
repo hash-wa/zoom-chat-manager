@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { listChats } from "@/lib/repo";
 import Sidebar from "@/components/Sidebar";
 import Skeleton from "@/components/Skeleton";
+import KeyboardShortcutsOverlay from "@/components/KeyboardShortcutsOverlay";
 
 // A separate component (rather than fetching in AppLayout itself) so the
 // Suspense boundary below actually has something to suspend on - an async
@@ -39,6 +40,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <SidebarData />
       </Suspense>
       <main className="flex-1 min-w-0 px-4 py-6 max-w-4xl w-full mx-auto">{children}</main>
+      <KeyboardShortcutsOverlay />
     </div>
   );
 }

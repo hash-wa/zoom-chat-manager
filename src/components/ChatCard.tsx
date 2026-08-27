@@ -15,12 +15,18 @@ export default function ChatCard({
   messageTags,
   query = "",
   matches = [],
+  selectMode = false,
+  selected = false,
+  onToggleSelect,
 }: {
   chat: ChatSummary;
   allTags: Tag[];
   messageTags?: Tag[];
   query?: string;
   matches?: LinkMessage[];
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
 }) {
   const router = useRouter();
   const isSearchResult = query.trim().length > 0;
@@ -52,6 +58,14 @@ export default function ChatCard({
         )}
       </p>
       <div className="flex items-center flex-wrap gap-2">
+        {selectMode && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect?.(chat.id)}
+            aria-label={`Select ${chat.title}`}
+          />
+        )}
         <Link
           href={`/chats/${chat.id}`}
           className="font-medium text-slate-900 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 truncate"
