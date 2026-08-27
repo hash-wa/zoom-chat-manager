@@ -27,6 +27,7 @@ import LowValueReviewPanel from "@/components/LowValueReviewPanel";
 import NoteEditModal from "@/components/NoteEditModal";
 
 type LinkFilter = "linkedin" | "links" | null;
+type CheckedState = "checked" | "unchecked" | null;
 
 function toolbarIconClass(active: boolean) {
   return `w-7 h-7 inline-flex items-center justify-center rounded-lg border text-sm ${
@@ -55,20 +56,25 @@ function linkFilterMatches(message: Message, filter: LinkFilter): boolean {
   return filter === "linkedin" ? hasLinkedInLink(message.body) : hasOtherLink(message.body);
 }
 
+function checkedMatches(message: Message, checkedState: CheckedState): boolean {
+  if (!checkedState) return true;
+  return checkedState === "checked" ? message.connected : !message.connected;
+}
+
 // A top-level message stays visible if it or any of its (nested) replies
 // match, so a matching reply never loses its surrounding thread context.
-function treeMatches(message: Message, query: string, filter: LinkFilter): boolean {
+function treeMatches(message: Message, query: string, filter: LinkFilter, checkedState: CheckedState): boolean {
   return (
-    (textMatches(message, query) && linkFilterMatches(message, filter)) ||
-    message.replies.some((r) => treeMatches(r, query, filter))
+    (textMatches(message, query) && linkFilterMatches(message, filter) && checkedMatches(message, checkedState)) ||
+    message.replies.some((r) => treeMatches(r, query, filter, checkedState))
   );
 }
 
-function countMatches(messages: Message[], query: string, filter: LinkFilter): number {
+function countMatches(messages: Message[], query: string, filter: LinkFilter, checkedState: CheckedState): number {
   let count = 0;
   for (const m of messages) {
-    if (textMatches(m, query) && linkFilterMatches(m, filter)) count++;
-    count += countMatches(m.replies, query, filter);
+    if (textMatches(m, query) && linkFilterMatches(m, filter) && checkedMatches(m, checkedState)) count++;
+    count += countMatches(m.replies, query, filter, checkedState);
   }
   return count;
 }
@@ -81,6 +87,18 @@ function countLinkMatches(messages: Message[], filter: "linkedin" | "links"): nu
   for (const m of messages) {
     if (linkFilterMatches(m, filter)) count++;
     count += countLinkMatches(m.replies, filter);
+  }
+  return count;
+}
+
+// Counts messages matching the current text search + link filter that are
+// (un)checked - independent of checkedState itself, so the Checked/Unchecked
+// pills always show accurate totals for what's currently available.
+function countByChecked(messages: Message[], query: string, filter: LinkFilter, wantConnected: boolean): number {
+  let count = 0;
+  for (const m of messages) {
+    if (textMatches(m, query) && linkFilterMatches(m, filter) && m.connected === wantConnected) count++;
+    count += countByChecked(m.replies, query, filter, wantConnected);
   }
   return count;
 }
@@ -118,6 +136,7 @@ export default function ChatDetailView({
   const [showFilters, setShowFilters] = useState(false);
   const [query, setQuery] = useState("");
   const [linkFilter, setLinkFilter] = useState<LinkFilter>(null);
+  const [checkedState, setCheckedState] = useState<CheckedState>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [deletingMessages, setDeletingMessages] = useState(false);
@@ -127,18 +146,28 @@ export default function ChatDetailView({
 
   const linkedInCount = useMemo(() => countLinkMatches(chat.messages, "linkedin"), [chat.messages]);
   const linksCount = useMemo(() => countLinkMatches(chat.messages, "links"), [chat.messages]);
+  const checkedCount = useMemo(
+    () => countByChecked(chat.messages, normalizedQuery, linkFilter, true),
+    [chat.messages, normalizedQuery, linkFilter]
+  );
+  const uncheckedCount = useMemo(
+    () => countByChecked(chat.messages, normalizedQuery, linkFilter, false),
+    [chat.messages, normalizedQuery, linkFilter]
+  );
 
   const visible = useMemo(
     () =>
-      normalizedQuery || linkFilter
-        ? chat.messages.filter((m) => treeMatches(m, normalizedQuery, linkFilter))
+      normalizedQuery || linkFilter || checkedState
+        ? chat.messages.filter((m) => treeMatches(m, normalizedQuery, linkFilter, checkedState))
         : chat.messages,
-    [chat.messages, normalizedQuery, linkFilter]
+    [chat.messages, normalizedQuery, linkFilter, checkedState]
   );
   const matchCount = useMemo(
     () =>
-      normalizedQuery || linkFilter ? countMatches(chat.messages, normalizedQuery, linkFilter) : 0,
-    [chat.messages, normalizedQuery, linkFilter]
+      normalizedQuery || linkFilter || checkedState
+        ? countMatches(chat.messages, normalizedQuery, linkFilter, checkedState)
+        : 0,
+    [chat.messages, normalizedQuery, linkFilter, checkedState]
   );
 
   useEffect(() => {
@@ -165,7 +194,7 @@ export default function ChatDetailView({
   useEffect(() => {
     setFocusedIndex(-1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [normalizedQuery, linkFilter]);
+  }, [normalizedQuery, linkFilter, checkedState]);
 
   // Focuses the search box whenever it's revealed, whether that came from
   // clicking the toggle button or from the "/" shortcut below.
@@ -180,10 +209,11 @@ export default function ChatDetailView({
       if (e.key === "Escape") {
         setFocusedIndex(-1);
         if (showFilters) {
-          if (query || linkFilter) {
+          if (query || linkFilter || checkedState) {
             // First Escape clears the search but leaves the panel open.
             setQuery("");
             setLinkFilter(null);
+            setCheckedState(null);
           } else {
             // Second Escape (already empty) closes the panel.
             setShowFilters(false);
@@ -307,7 +337,10 @@ export default function ChatDetailView({
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             {linkedInCount > 0 && (
               <button
-                onClick={() => setLinkFilter((f) => (f === "linkedin" ? null : "linkedin"))}
+                onClick={() => {
+                  setLinkFilter((f) => (f === "linkedin" ? null : "linkedin"));
+                  setCheckedState(null);
+                }}
                 title="LinkedIn"
                 aria-label="Filter LinkedIn messages"
                 className={pillClass(linkFilter === "linkedin")}
@@ -321,7 +354,10 @@ export default function ChatDetailView({
             )}
             {linksCount > 0 && (
               <button
-                onClick={() => setLinkFilter((f) => (f === "links" ? null : "links"))}
+                onClick={() => {
+                  setLinkFilter((f) => (f === "links" ? null : "links"));
+                  setCheckedState(null);
+                }}
                 title="Links"
                 aria-label="Filter other link messages"
                 className={pillClass(linkFilter === "links")}
@@ -415,6 +451,37 @@ export default function ChatDetailView({
           </div>
         </div>
 
+        {linkFilter && (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setCheckedState((s) => (s === "checked" ? null : "checked"))}
+              title="Checked"
+              aria-label="Filter checked messages"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
+                checkedState === "checked"
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
+            >
+              <FontAwesomeIcon icon={faCircleCheck} className={checkedState === "checked" ? "text-white" : "text-emerald-500"} />
+              Checked <span className="opacity-60">({checkedCount})</span>
+            </button>
+            <button
+              onClick={() => setCheckedState((s) => (s === "unchecked" ? null : "unchecked"))}
+              title="Unchecked"
+              aria-label="Filter unchecked messages"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
+                checkedState === "unchecked"
+                  ? "bg-slate-600 text-white border-slate-600"
+                  : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
+            >
+              <FontAwesomeIcon icon={faCircle} className={checkedState === "unchecked" ? "text-white" : "text-slate-400 dark:text-slate-500"} />
+              Unchecked <span className="opacity-60">({uncheckedCount})</span>
+            </button>
+          </div>
+        )}
+
         {selectMode && (
           <div className="flex flex-wrap items-center gap-3 text-sm pt-1">
             <span className="text-slate-500 dark:text-slate-400">{selected.size} selected</span>
@@ -475,9 +542,11 @@ export default function ChatDetailView({
         messages={visible}
         hasMessages={chat.messages.length > 0}
         emptyMessage={
-          query
-            ? <>No messages match &ldquo;{query}&rdquo;.</>
-            : `No messages with ${linkFilter === "linkedin" ? "LinkedIn" : "other"} links.`
+          query ? (
+            <>No messages match &ldquo;{query}&rdquo;.</>
+          ) : (
+            `No${checkedState ? ` ${checkedState}` : ""} messages with ${linkFilter === "linkedin" ? "LinkedIn" : "other"} links.`
+          )
         }
         allTags={messageTags}
         query={normalizedQuery}
