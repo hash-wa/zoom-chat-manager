@@ -10,6 +10,7 @@ import { splitSender } from "@/lib/parseZoomChat";
 import { linkifyWithHighlight, highlightText } from "@/lib/linkify";
 import { extractReactions } from "@/lib/reactions";
 import TagManager from "@/components/TagManager";
+import { useUndoDelete } from "@/components/UndoDeleteProvider";
 
 export default function LinkMessageCard({
   m,
@@ -27,11 +28,11 @@ export default function LinkMessageCard({
   focused?: boolean;
 }) {
   const router = useRouter();
+  const { isPending, scheduleDelete } = useUndoDelete();
   const [connected, setConnected] = useState(m.connected);
   const [starred, setStarred] = useState(m.starred);
   const [busy, setBusy] = useState(false);
   const [starBusy, setStarBusy] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const { name, to } = splitSender(m.sender);
   const { cleanBody, reactions } = extractReactions(m.body);
@@ -70,15 +71,15 @@ export default function LinkMessageCard({
     }
   }
 
-  async function handleDelete() {
-    if (!confirm("Delete this message? This cannot be undone.")) return;
-    setDeleting(true);
-    try {
-      await fetch(`/api/messages/${m.id}`, { method: "DELETE" });
-      router.refresh();
-    } finally {
-      setDeleting(false);
-    }
+  function handleDelete() {
+    scheduleDelete({
+      id: m.id,
+      label: "Message deleted",
+      onExpire: async () => {
+        await fetch(`/api/messages/${m.id}`, { method: "DELETE" });
+        router.refresh();
+      },
+    });
   }
 
   async function handleAddTag(tagName: string) {
@@ -126,6 +127,8 @@ export default function LinkMessageCard({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   });
+
+  if (isPending(m.id)) return null;
 
   return (
     <div
@@ -206,9 +209,8 @@ export default function LinkMessageCard({
             )}
             <button
               onClick={handleDelete}
-              disabled={deleting}
               aria-label="Delete message"
-              className={`text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 transition disabled:opacity-100 ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+              className={`text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 transition ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             >
               <FontAwesomeIcon icon={faTrashCan} fixedWidth />
             </button>

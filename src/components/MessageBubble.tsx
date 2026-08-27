@@ -9,6 +9,7 @@ import { splitSender } from "@/lib/parseZoomChat";
 import { linkifyWithHighlight, highlightText } from "@/lib/linkify";
 import { extractReactions } from "@/lib/reactions";
 import TagManager from "@/components/TagManager";
+import { useUndoDelete } from "@/components/UndoDeleteProvider";
 
 export default function MessageBubble({
   message,
@@ -30,11 +31,11 @@ export default function MessageBubble({
   focused?: boolean;
 }) {
   const router = useRouter();
+  const { isPending, scheduleDelete } = useUndoDelete();
   const [starred, setStarred] = useState(message.starred);
   const [connected, setConnected] = useState(message.connected);
   const [busy, setBusy] = useState(false);
   const [connectedBusy, setConnectedBusy] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const { name, to } = splitSender(message.sender);
   const { cleanBody, reactions } = extractReactions(message.body);
@@ -89,20 +90,15 @@ export default function MessageBubble({
     router.refresh();
   }
 
-  async function handleDelete() {
-    const replyCount = message.replies.length;
-    const warning =
-      replyCount > 0
-        ? `Delete this message? Its ${replyCount} repl${replyCount === 1 ? "y" : "ies"} will move out of this thread instead of being deleted.`
-        : "Delete this message? This cannot be undone.";
-    if (!confirm(warning)) return;
-    setDeleting(true);
-    try {
-      await fetch(`/api/messages/${message.id}`, { method: "DELETE" });
-      router.refresh();
-    } finally {
-      setDeleting(false);
-    }
+  function handleDelete() {
+    scheduleDelete({
+      id: message.id,
+      label: "Message deleted",
+      onExpire: async () => {
+        await fetch(`/api/messages/${message.id}`, { method: "DELETE" });
+        router.refresh();
+      },
+    });
   }
 
   useEffect(() => {
@@ -136,6 +132,8 @@ export default function MessageBubble({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   });
+
+  if (isPending(message.id)) return null;
 
   return (
     <div>
@@ -226,9 +224,8 @@ export default function MessageBubble({
             </button>
             <button
               onClick={handleDelete}
-              disabled={deleting}
               aria-label="Delete message"
-              className={`text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 transition disabled:opacity-100 ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+              className={`text-sm text-slate-300 dark:text-slate-600 hover:text-red-500 transition ${focused ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             >
               <FontAwesomeIcon icon={faTrashCan} fixedWidth />
             </button>
