@@ -5,12 +5,8 @@ import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faEllipsisVertical,
-  faFileExport,
   faCircleCheck,
   faCircle,
-  faTrashCan,
-  faNoteSticky,
   faMagnifyingGlass,
   faListCheck,
   faLink,
@@ -21,6 +17,7 @@ import { formatChatDate } from "@/lib/formatDate";
 import { hasLinkedInLink, hasOtherLink } from "@/lib/links";
 import ChatTitleEditor from "@/components/ChatTitleEditor";
 import ChatTagEditor from "@/components/ChatTagEditor";
+import ChatActionsMenu from "@/components/ChatActionsMenu";
 import ChatMessageList from "@/components/ChatMessageList";
 import DuplicateReviewPanel from "@/components/DuplicateReviewPanel";
 import LowValueReviewPanel from "@/components/LowValueReviewPanel";
@@ -93,7 +90,7 @@ function countLinkMatches(messages: Message[], filter: "linkedin" | "links"): nu
 
 // Counts messages matching the current text search + link filter that are
 // (un)checked - independent of checkedState itself, so the Checked/Unchecked
-// pills always show accurate totals for what's currently available.
+// capsule always shows accurate totals for what's currently available.
 function countByChecked(messages: Message[], query: string, filter: LinkFilter, wantConnected: boolean): number {
   let count = 0;
   for (const m of messages) {
@@ -125,13 +122,8 @@ export default function ChatDetailView({
   messageTags: Tag[];
 }) {
   const router = useRouter();
-  const [reviewed, setReviewed] = useState(chat.reviewed);
-  const [reviewedBusy, setReviewedBusy] = useState(false);
-  const [deletingChat, setDeletingChat] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [editingNote, setEditingNote] = useState(false);
   const [notes, setNotes] = useState(chat.notes ?? "");
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const [showFilters, setShowFilters] = useState(false);
   const [query, setQuery] = useState("");
@@ -169,22 +161,6 @@ export default function ChatDetailView({
         : 0,
     [chat.messages, normalizedQuery, linkFilter, checkedState]
   );
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    }
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuOpen(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [menuOpen]);
 
   // Keyboard focus tracks top-level messages only (not nested replies), and
   // resets when the user actually changes the search/filter - not on every
@@ -251,36 +227,6 @@ export default function ChatDetailView({
     // snapshot from whenever the effect last ran.
   });
 
-  async function toggleReviewed() {
-    if (reviewedBusy) return;
-    setReviewedBusy(true);
-    const next = !reviewed;
-    setReviewed(next);
-    try {
-      await fetch(`/api/chats/${chat.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reviewed: next }),
-      });
-      router.refresh();
-    } finally {
-      setReviewedBusy(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!confirm(`Delete "${chat.title}"? This cannot be undone.`)) return;
-    setDeletingChat(true);
-    setMenuOpen(false);
-    try {
-      await fetch(`/api/chats/${chat.id}`, { method: "DELETE" });
-      router.push("/chats");
-      router.refresh();
-    } finally {
-      setDeletingChat(false);
-    }
-  }
-
   function toggleSelected(id: number) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -337,10 +283,7 @@ export default function ChatDetailView({
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             {linkedInCount > 0 && (
               <button
-                onClick={() => {
-                  setLinkFilter((f) => (f === "linkedin" ? null : "linkedin"));
-                  setCheckedState(null);
-                }}
+                onClick={() => setLinkFilter((f) => (f === "linkedin" ? null : "linkedin"))}
                 title="LinkedIn"
                 aria-label="Filter LinkedIn messages"
                 className={pillClass(linkFilter === "linkedin")}
@@ -354,10 +297,7 @@ export default function ChatDetailView({
             )}
             {linksCount > 0 && (
               <button
-                onClick={() => {
-                  setLinkFilter((f) => (f === "links" ? null : "links"));
-                  setCheckedState(null);
-                }}
+                onClick={() => setLinkFilter((f) => (f === "links" ? null : "links"))}
                 title="Links"
                 aria-label="Filter other link messages"
                 className={pillClass(linkFilter === "links")}
@@ -369,6 +309,34 @@ export default function ChatDetailView({
                 <span className="opacity-60">({linksCount})</span>
               </button>
             )}
+            <div className="h-7 inline-flex items-stretch rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs">
+              <button
+                onClick={() => setCheckedState((s) => (s === "checked" ? null : "checked"))}
+                title="Checked"
+                aria-label="Filter checked messages"
+                className={`flex items-center gap-1 px-2 ${
+                  checkedState === "checked"
+                    ? "bg-emerald-600 text-white"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                }`}
+              >
+                <FontAwesomeIcon icon={faCircleCheck} className={checkedState === "checked" ? "text-white" : "text-emerald-500"} />
+                <span className="opacity-70">{checkedCount}</span>
+              </button>
+              <button
+                onClick={() => setCheckedState((s) => (s === "unchecked" ? null : "unchecked"))}
+                title="Unchecked"
+                aria-label="Filter unchecked messages"
+                className={`flex items-center gap-1 px-2 border-l border-slate-300 dark:border-slate-600 ${
+                  checkedState === "unchecked"
+                    ? "bg-slate-600 text-white"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                }`}
+              >
+                <FontAwesomeIcon icon={faCircle} className={checkedState === "unchecked" ? "text-white" : "text-slate-400 dark:text-slate-500"} />
+                <span className="opacity-70">{uncheckedCount}</span>
+              </button>
+            </div>
             <button
               onClick={() => setShowFilters((s) => !s)}
               title="Search / filter messages"
@@ -387,100 +355,16 @@ export default function ChatDetailView({
             >
               <FontAwesomeIcon icon={faListCheck} />
             </button>
-            <button
-              onClick={toggleReviewed}
-              disabled={reviewedBusy}
-              title={reviewed ? "Reviewed" : "Mark reviewed"}
-              aria-label={reviewed ? "Reviewed" : "Mark reviewed"}
-              className={`w-7 h-7 inline-flex items-center justify-center rounded-lg border text-sm disabled:opacity-50 ${
-                reviewed
-                  ? "bg-emerald-600 text-white border-emerald-600"
-                  : "border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
-              }`}
-            >
-              <FontAwesomeIcon icon={reviewed ? faCircleCheck : faCircle} />
-            </button>
-            <div className="relative" ref={menuRef}>
-              <button
-                onClick={() => setMenuOpen((o) => !o)}
-                aria-label="Chat actions"
-                aria-expanded={menuOpen}
-                className={toolbarIconClass(menuOpen)}
-              >
-                <FontAwesomeIcon icon={faEllipsisVertical} />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-50">
-                  <a
-                    href={`/api/chats/${chat.id}/export`}
-                    onClick={() => setMenuOpen(false)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-                  >
-                    <FontAwesomeIcon
-                      icon={faFileExport}
-                      fixedWidth
-                      className="text-slate-400 dark:text-slate-500"
-                    />
-                    Export
-                  </a>
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setEditingNote(true);
-                    }}
-                    className="flex items-center gap-2 w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-                  >
-                    <FontAwesomeIcon
-                      icon={faNoteSticky}
-                      fixedWidth
-                      className="text-slate-400 dark:text-slate-500"
-                    />
-                    {hasNotes ? "Edit note" : "Add note"}
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    disabled={deletingChat}
-                    className="flex items-center gap-2 w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50"
-                  >
-                    <FontAwesomeIcon icon={faTrashCan} fixedWidth />
-                    {deletingChat ? "Deleting..." : "Delete"}
-                  </button>
-                </div>
-              )}
-            </div>
+            <ChatActionsMenu
+              chatId={chat.id}
+              chatTitle={chat.title}
+              initialReviewed={chat.reviewed}
+              reviewedInMenu
+              hasNotes={hasNotes}
+              onEditNote={() => setEditingNote(true)}
+            />
           </div>
         </div>
-
-        {linkFilter && (
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => setCheckedState((s) => (s === "checked" ? null : "checked"))}
-              title="Checked"
-              aria-label="Filter checked messages"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
-                checkedState === "checked"
-                  ? "bg-emerald-600 text-white border-emerald-600"
-                  : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
-              }`}
-            >
-              <FontAwesomeIcon icon={faCircleCheck} className={checkedState === "checked" ? "text-white" : "text-emerald-500"} />
-              Checked <span className="opacity-60">({checkedCount})</span>
-            </button>
-            <button
-              onClick={() => setCheckedState((s) => (s === "unchecked" ? null : "unchecked"))}
-              title="Unchecked"
-              aria-label="Filter unchecked messages"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm transition ${
-                checkedState === "unchecked"
-                  ? "bg-slate-600 text-white border-slate-600"
-                  : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
-              }`}
-            >
-              <FontAwesomeIcon icon={faCircle} className={checkedState === "unchecked" ? "text-white" : "text-slate-400 dark:text-slate-500"} />
-              Unchecked <span className="opacity-60">({uncheckedCount})</span>
-            </button>
-          </div>
-        )}
 
         {selectMode && (
           <div className="flex flex-wrap items-center gap-3 text-sm pt-1">
@@ -544,8 +428,12 @@ export default function ChatDetailView({
         emptyMessage={
           query ? (
             <>No messages match &ldquo;{query}&rdquo;.</>
-          ) : (
+          ) : linkFilter ? (
             `No${checkedState ? ` ${checkedState}` : ""} messages with ${linkFilter === "linkedin" ? "LinkedIn" : "other"} links.`
+          ) : checkedState ? (
+            `No ${checkedState} messages.`
+          ) : (
+            "No messages match the selected filters."
           )
         }
         allTags={messageTags}

@@ -11,6 +11,8 @@ import {
   faMagnifyingGlass,
   faCircleCheck,
   faCircle,
+  faFileExport,
+  faTrashCan,
 } from "@fortawesome/free-solid-svg-icons";
 import type { ChatSummary, TagWithCount, LinkMessage, Tag } from "@/lib/repo";
 import ChatCard from "@/components/ChatCard";
@@ -78,6 +80,8 @@ export default function ChatsBulkManager({
   const [tagInput, setTagInput] = useState("");
   const [removeTagId, setRemoveTagId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [deletingChats, setDeletingChats] = useState(false);
 
   const [qInput, setQInput] = useState(query);
   const [fromInput, setFromInput] = useState(from);
@@ -210,6 +214,52 @@ export default function ChatsBulkManager({
     }
   }
 
+  async function handleExportSelected() {
+    if (selected.size === 0 || exporting) return;
+    setExporting(true);
+    try {
+      // Bundled as a single zip rather than N sequential downloads - Chrome
+      // (and others) silently block automatic multi-file downloads after
+      // the first one unless the user has already granted the site
+      // permission, so triggering one <a> click per chat only ever
+      // delivered the first file in practice.
+      const res = await fetch("/api/chats/bulk-export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatIds: Array.from(selected) }),
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "chats-export.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleDeleteSelected() {
+    if (selected.size === 0 || deletingChats) return;
+    if (!confirm(`Delete ${selected.size} selected chat${selected.size === 1 ? "" : "s"}? This cannot be undone.`)) {
+      return;
+    }
+    setDeletingChats(true);
+    try {
+      await Promise.all(
+        Array.from(selected).map((id) => fetch(`/api/chats/${id}`, { method: "DELETE" }))
+      );
+      clearSelection();
+      router.refresh();
+    } finally {
+      setDeletingChats(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -233,12 +283,16 @@ export default function ChatsBulkManager({
           >
             <FontAwesomeIcon icon={faListCheck} />
           </button>
-          <div className="flex items-center gap-1">
+          <div className="h-7 inline-flex items-stretch rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-sm">
             <Link
               href={buildHref(activeTagId, "desc", { q: query, from, to, checked: checkedQueryValue })}
               title="Newest first"
               aria-label="Sort by newest first"
-              className={toolbarIconClass(sort === "desc")}
+              className={`flex items-center px-2 ${
+                sort === "desc"
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
             >
               <FontAwesomeIcon icon={faArrowDownWideShort} />
             </Link>
@@ -246,7 +300,11 @@ export default function ChatsBulkManager({
               href={buildHref(activeTagId, "asc", { q: query, from, to, checked: checkedQueryValue })}
               title="Oldest first"
               aria-label="Sort by oldest first"
-              className={toolbarIconClass(sort === "asc")}
+              className={`flex items-center px-2 border-l border-slate-300 dark:border-slate-600 ${
+                sort === "asc"
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
             >
               <FontAwesomeIcon icon={faArrowUpWideShort} />
             </Link>
@@ -323,7 +381,7 @@ export default function ChatsBulkManager({
         </div>
       )}
 
-      {selectMode && selected.size > 0 && (
+      {selectMode && (
         <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-lg px-3 py-2 text-sm">
           <span className="font-medium text-indigo-900 dark:text-indigo-200 shrink-0">
             {selected.size} selected
@@ -350,7 +408,7 @@ export default function ChatsBulkManager({
             </datalist>
             <button
               type="submit"
-              disabled={busy || !tagInput.trim()}
+              disabled={busy || !tagInput.trim() || selected.size === 0}
               className="text-xs bg-indigo-600 text-white rounded-full px-2.5 py-1 hover:bg-indigo-700 disabled:opacity-50"
             >
               Add
@@ -379,13 +437,35 @@ export default function ChatsBulkManager({
               </select>
               <button
                 type="submit"
-                disabled={busy || !removeTagId}
+                disabled={busy || !removeTagId || selected.size === 0}
                 className="text-xs bg-red-500 text-white rounded-full px-2.5 py-1 hover:bg-red-600 disabled:opacity-50"
               >
                 Remove
               </button>
             </form>
           )}
+
+          <button
+            type="button"
+            onClick={handleExportSelected}
+            disabled={exporting || selected.size === 0}
+            title="Export selected chats"
+            className="flex items-center gap-1 text-xs bg-slate-600 text-white rounded-full px-2.5 py-1 hover:bg-slate-700 disabled:opacity-50"
+          >
+            <FontAwesomeIcon icon={faFileExport} />
+            {exporting ? "Exporting..." : "Export"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDeleteSelected}
+            disabled={deletingChats || selected.size === 0}
+            title="Delete selected chats"
+            className="flex items-center gap-1 text-xs bg-red-600 text-white rounded-full px-2.5 py-1 hover:bg-red-700 disabled:opacity-50"
+          >
+            <FontAwesomeIcon icon={faTrashCan} />
+            {deletingChats ? "Deleting..." : "Delete"}
+          </button>
 
           <button
             type="button"
