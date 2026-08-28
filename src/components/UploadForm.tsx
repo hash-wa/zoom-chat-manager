@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+type LinkedInMatch = { messageId: number; sender: string; profileUrl: string };
+
 export default function UploadForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -13,6 +15,9 @@ export default function UploadForm() {
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingChatId, setPendingChatId] = useState<number | null>(null);
+  const [pendingMatches, setPendingMatches] = useState<LinkedInMatch[] | null>(null);
+  const [marking, setMarking] = useState(false);
 
   function handleFileChosen(file: File | null) {
     setFileName(file ? file.name : null);
@@ -71,11 +76,80 @@ export default function UploadForm() {
         return;
       }
       const { id } = await res.json();
+
+      const matchesRes = await fetch(`/api/chats/${id}/linkedin-matches`);
+      const { matches } = (await matchesRes.json().catch(() => ({ matches: [] }))) as {
+        matches: LinkedInMatch[];
+      };
+
+      if (matches?.length > 0) {
+        setPendingChatId(id);
+        setPendingMatches(matches);
+        return;
+      }
+
       router.push(`/chats/${id}`);
       router.refresh();
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleMarkChecked() {
+    if (!pendingMatches || pendingChatId == null) return;
+    setMarking(true);
+    try {
+      await fetch("/api/messages/bulk-connected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageIds: pendingMatches.map((m) => m.messageId) }),
+      });
+      router.push(`/chats/${pendingChatId}`);
+      router.refresh();
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  function handleSkipMarking() {
+    if (pendingChatId == null) return;
+    router.push(`/chats/${pendingChatId}`);
+    router.refresh();
+  }
+
+  if (pendingMatches && pendingChatId != null) {
+    const senders = [...new Set(pendingMatches.map((m) => m.sender))];
+    return (
+      <div className="max-w-xl space-y-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
+        <p className="text-sm text-emerald-900 dark:text-emerald-200">
+          {senders.length} LinkedIn profile{senders.length === 1 ? "" : "s"} in this chat{" "}
+          {senders.length === 1 ? "was" : "were"} already marked as checked in another chat:
+        </p>
+        <ul className="text-sm text-emerald-800 dark:text-emerald-300 list-disc list-inside">
+          {senders.map((sender) => (
+            <li key={sender}>{sender}</li>
+          ))}
+        </ul>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleMarkChecked}
+            disabled={marking}
+            className="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {marking ? "Marking..." : "Mark as checked"}
+          </button>
+          <button
+            type="button"
+            onClick={handleSkipMarking}
+            disabled={marking}
+            className="text-sm text-emerald-800 dark:text-emerald-300 hover:underline disabled:opacity-50"
+          >
+            Skip
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

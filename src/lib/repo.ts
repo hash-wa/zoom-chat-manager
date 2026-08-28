@@ -1,6 +1,6 @@
 import { client, queryAll, queryOne, run, batch } from "@/lib/db";
 import { parseZoomChat, extractSortableDate, type ParsedMessage } from "@/lib/parseZoomChat";
-import { hasLinkedInLink, hasOtherLink } from "@/lib/links";
+import { hasLinkedInLink, hasOtherLink, extractLinkedInUrls } from "@/lib/links";
 
 export type Tag = { id: number; name: string; color: string };
 export type TagWithCount = Tag & { count: number };
@@ -258,6 +258,57 @@ export async function getChat(id: number): Promise<ChatDetail | undefined> {
   };
 }
 
+function flattenMessages(messages: Message[]): Message[] {
+  const out: Message[] = [];
+  for (const m of messages) {
+    out.push(m);
+    out.push(...flattenMessages(m.replies));
+  }
+  return out;
+}
+
+export type LinkedInMatch = {
+  messageId: number;
+  sender: string;
+  profileUrl: string;
+};
+
+// Compares the LinkedIn profile URLs mentioned in a chat against every
+// other message already marked "checked" (connected) elsewhere in the
+// database - lets the upload flow flag "you've already vetted this person"
+// instead of the user re-checking by hand for every new chat.
+export async function findPreviouslyCheckedLinkedIn(chatId: number): Promise<LinkedInMatch[]> {
+  const chat = await getChat(chatId);
+  if (!chat) return [];
+
+  const candidates = new Map<string, { messageId: number; sender: string }[]>();
+  for (const m of flattenMessages(chat.messages)) {
+    if (m.connected) continue;
+    for (const url of extractLinkedInUrls(m.body)) {
+      const list = candidates.get(url) ?? [];
+      list.push({ messageId: m.id, sender: m.sender });
+      candidates.set(url, list);
+    }
+  }
+  if (candidates.size === 0) return [];
+
+  const connectedRows = await queryAll<{ body: string }>(
+    "SELECT body FROM messages WHERE connected = 1 AND chat_id != ?",
+    [chatId]
+  );
+  const connectedProfiles = new Set<string>();
+  for (const row of connectedRows) {
+    for (const url of extractLinkedInUrls(row.body)) connectedProfiles.add(url);
+  }
+
+  const matches: LinkedInMatch[] = [];
+  for (const [url, entries] of candidates) {
+    if (!connectedProfiles.has(url)) continue;
+    for (const entry of entries) matches.push({ ...entry, profileUrl: url });
+  }
+  return matches;
+}
+
 function messageToMarkdown(m: Message, depth: number): string {
   const prefix = "> ".repeat(depth);
   const lines = [
@@ -354,6 +405,18 @@ export async function setMessageStarred(messageId: number, starred: boolean): Pr
 
 export async function setMessageConnected(messageId: number, connected: boolean): Promise<void> {
   await run("UPDATE messages SET connected = ? WHERE id = ?", [connected ? 1 : 0, messageId]);
+}
+
+export async function bulkSetMessageConnected(
+  messageIds: number[],
+  connected: boolean
+): Promise<void> {
+  await batch(
+    messageIds.map((id) => ({
+      sql: "UPDATE messages SET connected = ? WHERE id = ?",
+      args: [connected ? 1 : 0, id],
+    }))
+  );
 }
 
 export async function setMessageLowValueDismissed(

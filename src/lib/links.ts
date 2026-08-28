@@ -35,3 +35,29 @@ export function extractDomains(text: string): string[] {
   }
   return [...domains];
 }
+
+// Identity of a LinkedIn URL lives in its path (e.g. /in/johndoe), not the
+// query string or trailing slash - two links pointing at the same profile
+// can otherwise differ by tracking params (?trk=...) or a trailing "/".
+// Normalizing to just the lowercased path lets two mentions of the same
+// profile (possibly pasted at different times, in different chats) compare
+// equal.
+function normalizeLinkedInUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!/linkedin\.com$/i.test(u.hostname.replace(/^www\./i, ""))) return null;
+    const path = u.pathname.replace(/\/+$/, "").toLowerCase();
+    return path || null;
+  } catch {
+    return null;
+  }
+}
+
+export function extractLinkedInUrls(text: string): string[] {
+  const urls = new Set<string>();
+  for (const raw of extractUrls(text)) {
+    const normalized = normalizeLinkedInUrl(raw);
+    if (normalized) urls.add(normalized);
+  }
+  return [...urls];
+}
